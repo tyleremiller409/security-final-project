@@ -1,0 +1,91 @@
+//===- registers.dl -----------------------------------------*- datalog -*-===//
+//
+//  Copyright (C) 2020 GrammaTech, Inc.
+//
+//  This code is licensed under the GNU Affero General Public License
+//  as published by the Free Software Foundation, either version 3 of
+//  the License, or (at your option) any later version. See the
+//  LICENSE.txt file in the project root for license terms or visit
+//  https://www.gnu.org/licenses/agpl.txt.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//  GNU Affero General Public License for more details.
+//
+//  This project is sponsored by the Office of Naval Research, One Liberty
+//  Center, 875 N. Randolph Street, Arlington, VA 22203 under contract #
+//  N68335-17-C-0700.  The content of the information does not necessarily
+//  reflect the position or policy of the Government and no official
+//  endorsement should be inferred.
+//
+//===----------------------------------------------------------------------===//
+/*
+This module establishes basic information about register:
+ - Which registers and tracked/considered in the different analyses
+ - Whether they all callee or caller saved according to the ABI
+*/
+
+/**
+Generate Indexes of general purpose registers
+*/
+.decl gp_reg_index(Index:unsigned)
+gp_reg_index(0).
+gp_reg_index(I + 1):-
+    gp_reg_index(I),
+    I < 28.
+
+/**
+The size of a register, in bits.
+*/
+.decl register_size_bits(Reg:symbol,Size:unsigned)
+.output register_size_bits
+
+register_size_bits(Reg32, 32),
+register_size_bits(Reg64, 64),
+track_register(Reg32, Reg64),
+track_register(Reg64, Reg64):-
+    gp_reg_index(I),
+    Reg32 = cat("W", to_string(I)),
+    Reg64 = cat("X", to_string(I)).
+
+register_size_bits("W29", 32).
+register_size_bits("W30", 32).
+register_size_bits("WSP", 32).
+register_size_bits("FP", 64).
+register_size_bits("LR", 64).
+register_size_bits("SP", 64).
+
+track_register("W29", "FP").
+track_register("FP", "FP").
+
+track_register("W30", "LR").
+track_register("LR", "LR").
+
+track_register("WSP", "SP").
+track_register("SP", "SP").
+
+track_register("NZCV", "NZCV").
+
+// Use the 'System V AMD64 ABI' calling convention.
+function_non_maintained_reg(Reg):-
+    gp_reg_index(I),
+    Reg = cat("X", to_string(I)),
+    0 <= I, I <= 18.
+
+function_non_maintained_reg("FP").
+
+// PC is not a register in aarch64
+pc_register("NONE"):-
+    false.
+
+// TODO:
+frame_pointer("NONE"):-
+    false.
+
+stack_pointer("WSP").
+stack_pointer("SP").
+
+return_val_reg("X0").
+
+condition_flags_reg("NZCV").

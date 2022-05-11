@@ -1,0 +1,218 @@
+//===- arch_x86.dl ------------------------------------------*- datalog -*-===//
+//
+//  Copyright (C) 2020 GrammaTech, Inc.
+//
+//  This code is licensed under the GNU Affero General Public License
+//  as published by the Free Software Foundation, either version 3 of
+//  the License, or (at your option) any later version. See the
+//  LICENSE.txt file in the project root for license terms or visit
+//  https://www.gnu.org/licenses/agpl.txt.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//  GNU Affero General Public License for more details.
+//
+//  This project is sponsored by the Office of Naval Research, One Liberty
+//  Center, 875 N. Randolph Street, Arlington, VA 22203 under contract #
+//  N68335-17-C-0700.  The content of the information does not necessarily
+//  reflect the position or policy of the Government and no official
+//  endorsement should be inferred.
+//
+//===----------------------------------------------------------------------===//
+
+// Define a common set of predicates for x86 instructions and characteristics.
+.comp X86 : Arch {
+
+#include "jump_operations.dl"
+#include "interrupt_operations.dl"
+#include "float_operations.dl"
+#include "memory_access.dl"
+
+move_operation(Operation) :-
+    instruction_get_operation(_, Operation),
+    contains("MOV", Operation).
+
+mov(EA):-
+    instruction_get_operation(EA,Operation),
+    move_operation(Operation).
+
+// TODO: CMOV conditions - nothing uses the CC on a mov instruction currently.
+conditional_operation(Operation,"?"):-
+    instruction_get_operation(_, Operation),
+    substr(Operation,0,4) = "CMOV".
+
+// No rule for load_operation
+load_operation(""):-false.
+
+// No rule for store_operation
+store_operation("").
+
+is_nop(EA):-
+    instruction_get_operation(EA,"NOP").
+
+is_nop(EA):-
+    instruction(EA,_,_,"XCHG",Op,Op,0,0,_,_),
+    op_regdirect(Op,"AX").
+
+// Extend the generic case with loop operations.
+jump_operation(Operation):-
+    loop_operation(Operation,_).
+
+op_does_not_read_dest_reg("LEA").
+op_does_not_read_dest_reg("POP").
+
+arithmetic_operation("ADD").
+arithmetic_operation("SUB").
+arithmetic_operation("INC").
+arithmetic_operation("DEC").
+arithmetic_operation("IMUL").
+arithmetic_operation("SHL").
+
+multiplication_operation("IMUL").
+multiplication_operation("SHL").
+
+shift_rotate_operation("SHL").
+shift_rotate_operation("SAL").
+shift_rotate_operation("SHR").
+shift_rotate_operation("SAR").
+shift_rotate_operation("ROR").
+shift_rotate_operation("ROL").
+shift_rotate_operation("RCR").
+shift_rotate_operation("RCL").
+
+logic_operation("AND").
+logic_operation("XOR").
+logic_operation("OR").
+logic_operation("TEST").
+
+read_only_operation("TEST").
+read_only_operation("CMP").
+
+write_only_operation("POP").
+
+one_op_write("INC").
+one_op_write("DEC").
+one_op_write("POP").
+one_op_write("NOT").
+
+.decl loop_operation(Operation:symbol,CC:condition_code)
+loop_operation("LOOP","NE").
+
+// LOOPcc instructions check two conditions: ECX = 0 AND ZF = ?
+// This is too complex to represent with our standardized condition codes.
+loop_operation("LOOPE","?").
+loop_operation("LOOPZ","?").
+loop_operation("LOOPNE","?").
+loop_operation("LOOPNZ","?").
+
+conditional_operation(Operation,CC),
+cmp_zero_operation(Operation):-
+    instruction_get_operation(_, Operation),
+    loop_operation(Operation,CC).
+
+loop_prefix("REP").
+loop_prefix("REPE").
+loop_prefix("REPNE").
+
+call_operation("CALL").
+
+syscall_operation("SYSCALL").
+
+return_operation("RET").
+
+halt_operation("HLT").
+halt_operation("UD2").
+
+cmp_operation("CMP").
+cmp_operation("TEST").
+
+cmp_zero_operation("JCXZ").
+cmp_zero_operation("JECXZ").
+cmp_zero_operation("JRCXZ").
+
+// FIXME: review this list when Capstone is updated.
+operation_size_exception(EA,Index,8):-
+    instruction_get_operation(EA,"MOVSD"),
+    instruction_get_op(EA,Index,Op),
+    op_indirect(Op,_,_,_,_,_,32).
+
+operation_size_exception(EA,Index,0):-
+    instruction_get_operation(EA,"LEA"),
+    instruction_get_op(EA,Index,Op),
+    op_indirect(Op,_,_,_,_,_,_).
+
+// ADD reg, imm
+reg_arithmetic_operation(EA,Reg,Reg,1,Immediate):-
+    instruction(EA,_,_,"ADD",Op1,Op2,0,0,_,_),
+    op_immediate(Op1,Immediate),
+    op_regdirect_contains_reg(Op2,Reg).
+
+// SUB reg, imm
+reg_arithmetic_operation(EA,Reg,Reg,1,-Immediate):-
+    instruction(EA,_,_,"SUB",Op1,Op2,0,0,_,_),
+    op_immediate(Op1,Immediate),
+    op_regdirect_contains_reg(Op2,Reg).
+
+// INC reg
+reg_arithmetic_operation(EA,Reg,Reg,1,1):-
+    instruction(EA,_,_,"INC",Op1,0,0,0,_,_),
+    op_regdirect_contains_reg(Op1,Reg).
+
+// DEC reg
+reg_arithmetic_operation(EA,Reg,Reg,1,-1):-
+    instruction(EA,_,_,"DEC",Op1,0,0,0,_,_),
+    op_regdirect_contains_reg(Op1,Reg).
+
+//shl reg immediate
+reg_arithmetic_operation(EA,Reg,Reg,2^Shift,0):-
+    instruction(EA,_,_,"SHL",Op1,Op2,0,0,_,_),
+    op_immediate(Op1,Shift),
+    op_regdirect_contains_reg(Op2,Reg).
+
+//mul reg immediate
+reg_arithmetic_operation(EA,Reg,Reg,Mult,0):-
+    instruction(EA,_,_,"IMUL",Op1,Op2,0,0,_,_),
+    op_immediate(Op1,Mult),
+    op_regdirect_contains_reg(Op2,Reg).
+
+//mul reg reg immediate
+reg_arithmetic_operation(EA,Dst,Src,Mult,0):-
+    instruction(EA,_,_,"IMUL",Op1,Op2,Op3,0,_,_),
+    op_immediate(Op2,Mult),
+    op_regdirect_contains_reg(Op3,Dst),
+    op_regdirect_contains_reg(Op1,Src).
+
+//lea reg [reg_origin*Multiplier+Offset]
+reg_arithmetic_operation(EA,Reg,Reg_origin,Mult,Offset):-
+    instruction(EA,_,_,"LEA",Op1,Op2,0,0,_,_),
+    op_indirect(Op1,_,"NONE",Reg_origin_non_uniform,Mult,Offset,_),
+    arch.track_register(Reg_origin_non_uniform,Reg_origin),
+    op_regdirect_contains_reg(Op2,Reg).
+
+//lea reg [reg_origin+Offset]
+reg_arithmetic_operation(EA,Reg,Reg_origin,1,Offset):-
+    instruction(EA,_,_,"LEA",Op1,Op2,0,0,_,_),
+    op_indirect(Op1,_,Reg_origin_non_uniform,"NONE",1,Offset,_),
+    arch.track_register(Reg_origin_non_uniform,Reg_origin),
+    op_regdirect_contains_reg(Op2,Reg).
+
+reg_reg_arithmetic_operation(EA,Reg2,Reg2,Reg1,-1,0):-
+    instruction(EA,_,_,"SUB",Op1,Op2,0,0,_,_),
+    op_regdirect_contains_reg(Op1,Reg1),
+    op_regdirect_contains_reg(Op2,Reg2).
+
+reg_reg_arithmetic_operation(EA,Reg2,Reg1,Reg2,1,0):-
+    instruction(EA,_,_,"ADD",Op1,Op2,0,0,_,_),
+    op_regdirect_contains_reg(Op2,Reg2),
+    op_regdirect_contains_reg(Op1,Reg1).
+
+//lea reg [reg1 + reg2*Multiplier+Offset]
+reg_reg_arithmetic_operation(EA,Reg_def,Reg1,Reg2,Mult,Offset):-
+    instruction(EA,_,_,"LEA",Op1,Op2,0,0,_,_),
+    op_regdirect_contains_reg(Op2,Reg_def),
+    op_indirect(Op1,_,Reg1_n,Reg2_n,Mult,Offset,_),
+    arch.track_register(Reg1_n,Reg1),
+    arch.track_register(Reg2_n,Reg2).
+
+}

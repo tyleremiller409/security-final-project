@@ -1,0 +1,254 @@
+platform: Linux
+
+default: &default
+  path: examples
+  binary: ex
+
+  # Compilation configuration.
+  build: &default-build
+    c: ["gcc", "clang"]
+    cpp: ["g++", "clang++"]
+    optimizations: ["-O0", "-O1", "-O2", "-O3", "-Os"]
+    flags: ["-m32", "-fno-pie", "-no-pie"]
+
+  # Reassembly configuration.
+  reassemble:
+    compiler: "gcc"
+    flags: ["-m32", "-no-pie"]
+    skip: false
+
+  # Test configuration.
+  test: &default-test
+    wrapper: null
+    strip_exe: "strip"
+    strip: false
+    skip: false
+    check_cfg: true
+
+cpp: &default-cpp
+  <<: *default
+  test:
+    <<: *default-test
+    # Don't run CFG checks on CPP binaries
+    check_cfg: false
+  reassemble:
+    compiler: "g++"
+    flags: ["-m32", "-fno-pie", "-no-pie"]
+    skip: false
+
+position-independent: &position-independent
+  <<: *default
+
+  # Compilation configuration.
+  build:
+    c: ["gcc", "clang"]
+    cpp: ["g++", "clang++"]
+    optimizations: ["-O0", "-O1", "-O2", "-O3", "-Os"]
+    flags: ["-m32", "-fpie"]
+
+  # Reassembly configuration.
+  reassemble:
+    compiler: "gcc"
+    flags: ["-m32", "-fpie"]
+    skip: false
+
+  test:
+    <<: *default-test
+    # TODO: re-enable CFG checks.
+    # PIE CFG tests are currently disabled due to failures in clang PIE binaries.
+    # See issue #329
+    check_cfg: false
+
+strip: &strip
+  test:
+    strip_exe: "strip"
+    strip: true
+
+position-independent-cpp: &position-independent-cpp
+  <<: *position-independent
+  test:
+    <<: *default-test
+    # Don't run CFG checks on CPP binaries
+    check_cfg: false
+  reassemble:
+    compiler: "g++"
+    flags: ["-m32", "-pie"]
+    skip: false
+
+tests:
+  # ----------------------------------------------------------------------------
+  # Small C and C++ examples.
+  # ----------------------------------------------------------------------------
+  - name: ex1
+    <<: *default
+
+  - name: ex_confusing_data
+    <<: *default
+
+  - name: ex_exceptions1
+    <<: *default-cpp
+
+  - name: ex_exceptions2
+    <<: *default-cpp
+
+  - name: ex_exceptions3
+    <<: *default-cpp
+
+  - name: ex_false_pointer_array
+    <<: *default
+    test:
+      <<: *default-test
+      # TODO: this example fails because function pointers are not resolved in the CFG
+      check_cfg: false
+
+  - name: ex_float
+    <<: *default
+
+  - name: ex_fprintf
+    <<: *default
+
+  - name: ex_getoptlong
+    <<: *default
+
+  - name: ex_init_array
+    <<: *default-cpp
+    build:
+      <<: *default-build
+      # Testing one version is enough.
+      optimizations: ["-O0"]
+
+  - name: ex_memberPointer
+    <<: *default-cpp
+
+  - name: ex_noreturn
+    <<: *default
+    test:
+      <<: *default-test
+      # noreturn may result in unreachable code.
+      check_cfg: false
+
+  - name: ex_pointerReatribution
+    <<: *default
+
+  - name: ex_pointerReatribution3
+    <<: *default
+
+  - name: ex_stat
+    <<: *default
+
+  - name: ex_struct
+    <<: *default
+
+  - name: ex_switch
+    <<: *default
+
+  - name: ex_uninitialized_data
+    <<: *default
+
+  - name: ex_virtualDispatch
+    <<: *default-cpp
+
+  - name: ex_thread_local
+    <<: *default
+
+  - name: ex_threads
+    <<: *default-cpp
+    reassemble:
+      compiler: "g++"
+      flags: ["-m32", "-lpthread", "-no-pie", "-fno-pie"]
+
+  - name: ex_call_once
+    <<: *default-cpp
+    build:
+        c: ["gcc"]
+        cpp: ["g++"]
+        optimizations: ["-O0", "-O1", "-O2", "-O3", "-Os"]
+        flags: ["-m32"]
+    reassemble:
+      compiler: "g++"
+      flags: ["-m32", "-lpthread"]
+
+  # ----------------------------------------------------------------------------
+  # Small C and C++ examples.  (position independent code)
+  # ----------------------------------------------------------------------------
+  - name: ex1
+    <<: *position-independent
+
+  - name: ex_2modulesPIC
+    <<: *position-independent
+
+  - name: ex_confusing_data
+    <<: *position-independent
+
+  - name: ex_exceptions1
+    <<: *position-independent-cpp
+
+  - name: ex_exceptions2
+    <<: *position-independent-cpp
+
+  - name: ex_exceptions3
+    <<: *position-independent-cpp
+
+  - name: ex_false_pointer_array
+    <<: *position-independent
+    test:
+      <<: *default-test
+      # TODO: this example fails because function pointers are not resolved in the CFG
+      check_cfg: false
+
+  - name: ex_float
+    <<: *position-independent
+
+  - name: ex_fprintf
+    <<: *position-independent
+
+  - name: ex_getoptlong
+    <<: *position-independent
+
+  - name: ex_memberPointer
+    <<: *position-independent-cpp
+
+  - name: ex_noreturn
+    <<: *position-independent
+
+  - name: ex_pointerReatribution
+    <<: *position-independent
+
+  - name: ex_pointerReatribution3
+    <<: *position-independent
+
+  - name: ex_stat
+    <<: *position-independent
+
+  - name: ex_struct
+    <<: *position-independent
+
+  # TODO:
+  # - name: ex_switch
+  #   <<: *position-independent
+
+  - name: ex_uninitialized_data
+    <<: *position-independent
+
+  - name: ex_virtualDispatch
+    <<: *position-independent-cpp
+
+  - name: ex_thread_local
+    <<: *position-independent
+
+  - name: ex_threads
+    <<: *position-independent-cpp
+    reassemble:
+      compiler: "g++"
+      flags: ["-m32", "-lpthread", "-fpie"]
+
+  # ----------------------------------------------------------------------------
+  # Small C and C++ examples. (stripped)
+  # ----------------------------------------------------------------------------
+  - name: ex1
+    <<: *default
+    <<: *strip
+
+  - name: ex1
+    <<: *position-independent
+    <<: *strip

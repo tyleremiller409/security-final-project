@@ -1,0 +1,441 @@
+//===- arch.dl ----------------------------------------------*- datalog -*-===//
+//
+//  Copyright (C) 2019-2022 GrammaTech, Inc.
+//
+//  This code is licensed under the GNU Affero General Public License
+//  as published by the Free Software Foundation, either version 3 of
+//  the License, or (at your option) any later version. See the
+//  LICENSE.txt file in the project root for license terms or visit
+//  https://www.gnu.org/licenses/agpl.txt.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//  GNU Affero General Public License for more details.
+//
+//  This project is sponsored by the Office of Naval Research, One Liberty
+//  Center, 875 N. Randolph Street, Arlington, VA 22203 under contract #
+//  N68335-17-C-0700.  The content of the information does not necessarily
+//  reflect the position or policy of the Government and no official
+//  endorsement should be inferred.
+//
+//===----------------------------------------------------------------------===//
+/**
+This module provides a generic implementation of arch component. This allows
+declaring all relations of the interface, and defining default rules for some
+of them.
+*/
+
+// Include architecture-specific code.
+#ifdef ARCH_ARM64
+    #include "../arm_binaries.dl"
+    #include "../arm64_binaries.dl"
+    #include "arm64/arch_arm64.dl"
+    .init arch = ARM64
+#elif defined(ARCH_IA32)
+    #include "intel/arch_x86_32.dl"
+    .init arch = X86_32
+#elif defined(ARCH_AMD64)
+    #include "intel/arch_x86_64.dl"
+    .init arch = X86_64
+#else
+    #error "Undefined architecture"
+#endif
+
+/**
+This condition code type is modeled primarily after Intel codes.
+
+A condition code of "?" indicates that the comparison is not understood by ddisasm.
+
+Mapping to other architectures is provided:
+
+CC  ARM Intel MIPS    Description
+
+O   VS  O     -       Overflow
+NO  VC  NO    -       No overflow
+P   -   P     -       Parity
+PE  -   PE    -       No parity
+S   MI  S     -       Negative
+NS  PL  NS    -       Positive or zero
+
+E   EQ  E     EQ      Equal
+NE  NE  NE    NE      Not equal
+
+A   HI  A     -       Unsigned above
+B   LO  B     -       Unsigned below
+AE  HS  AE    -       Unsigned above or equal
+BE  LS  BE    -       Unsigned below or equal
+
+G   GT  G     GTZ     Signed greater
+L   LT  L     LTZ     Signed less
+GE  GE  GE    GEZ     Signed greater or equal
+LE  LE  LE    LEZ     Signed less or equal
+*/
+.type condition_code <: symbol
+
+/**
+Define a standard interface for architecture components.
+*/
+.comp Arch {
+
+// ===========================================================================
+// Operation Types
+// ===========================================================================
+
+/**
+Define a set of floating point operations
+*/
+.decl float_operation(Operation:symbol)
+
+.decl interrupt_operation(Operation:symbol)
+
+/**
+An operation that may be a jump, depending on context. Use arch.jump(EA) for a
+defintive list of jumps.
+*/
+.decl jump_operation(Operation:symbol)
+
+/**
+Define all variants of the move operation.
+*/
+.decl move_operation(Operation:symbol)
+.output move_operation
+
+.decl load_operation(Operation:symbol)
+
+.decl load_word_operation(Operation:symbol)
+load_word_operation(""):-
+    false.
+
+.decl store_operation(Operation:symbol)
+.output store_operation
+
+.decl conditional_operation(Operation:symbol,CC:condition_code)
+
+.decl conditional(EA:address,CC:condition_code)
+.output conditional
+
+conditional(EA,CC):-
+    instruction_get_operation(EA,Operation),
+    arch.conditional_operation(Operation,CC).
+
+.decl op_does_not_read_dest_reg(Operation:symbol)
+.output op_does_not_read_dest_reg
+
+/**
+This can include any multiplication operations, including shift-left operation.
+*/
+.decl multiplication_operation(Operation:symbol)
+
+/**
+This can include shift and rotation (right/left, arithmetic/logical)
+operations.
+*/
+.decl shift_rotate_operation(Operation:symbol)
+
+/**
+This can include any kinds of arithmetic operations including arithmetic shifts
+and multiplications.
+*/
+.decl arithmetic_operation(Operation:symbol)
+.output arithmetic_operation
+
+/**
+This can include logical operations including bitwise operations.
+*/
+.decl logic_operation(Operation:symbol)
+.output logic_operation
+
+.decl read_only_operation(Operation:symbol)
+.output read_only_operation
+
+/**
+This excludes a read of SP for adjusting stack-pointer: e.g., pop
+*/
+.decl write_only_operation(Operation:symbol)
+.output write_only_operation
+
+.decl one_op_write(Operation:symbol)
+.output one_op_write
+
+.decl call_operation(Operation:symbol)
+.output call_operation
+
+.decl syscall_operation(Operation:symbol)
+
+.decl return_operation(Operation:symbol)
+
+.decl halt_operation(Operation:symbol)
+.output halt_operation
+
+halt_operation(""):-
+    false.
+
+/**
+May include operations that:
+
+* compare two values and implicitly set flags, e.g, Intel "CMP"
+* compare two values in a manner other than subtraction, e.g, Intel "TEST"
+* make a comparison and branch, e.g., mips32 "BEQZ"
+
+*/
+.decl cmp_operation(Operation:symbol)
+.output cmp_operation
+
+/**
+Comparison operations where a value is implicitly compared to zero.
+
+Comparison may occur within an instruction that is also a branch operation,
+e.g., "BEQZ" on MIPS.
+*/
+.decl cmp_zero_operation(Operation:symbol)
+.output cmp_zero_operation
+
+cmp_zero_operation(""):-
+    false.
+
+// ===========================================================================
+// Operation Operand Indices
+// ===========================================================================
+
+.decl jump_operation_op_index(Operation:symbol,operand_index:operand_index)
+
+.decl call_operation_op_index(Operation:symbol,operand_index:operand_index)
+
+// ===========================================================================
+// Address-targeted instruction properties
+// ===========================================================================
+
+/**
+Find all addresses where a move instruction is used
+*/
+.decl mov(EA:address)
+.output mov
+
+.decl is_nop(EA:address)
+
+// Reg = Reg is effectively a nop, and may be used as padding.
+is_nop(EA):-
+    reg_arithmetic_operation(EA,Reg,Reg,1,0).
+
+/**
+Returns
+*/
+.decl return(EA:address) overridable
+.output return
+return(EA):-
+    instruction_get_operation(EA,Operation),
+    return_operation(Operation).
+
+.decl jump(EA:address) overridable
+.output jump
+
+jump(EA):-
+    instruction_get_operation(EA,Operation),
+    jump_operation(Operation),
+    !arch.return(EA).
+
+.decl call(EA:address,DestOperandIndex:operand_index)
+
+call(EA,DestOperandIndex):-
+    instruction_get_operation(EA,Operation),
+    call_operation(Operation),
+    call_operation_op_index(Operation,DestOperandIndex).
+
+/**
+Represents a load or store.
+
+The address of the accessed memory is of the form:
+
+    BaseReg + IndexReg * Mult + Offset
+
+Complex memory accesses may be represented with multiple members of this
+relation at the same address. For example, the arm64 instruction:
+
+    0x1000: ldp x7, x8, [x0, #10]
+
+generates two arch.memory_access members:
+
+    memory_access("LOAD",0x1000,2,3,"X7","X0","NONE",0,10)
+    memory_access("LOAD",0x1000,2,1,"X8","X0","NONE",0,18)
+
+AccessType is either "LOAD" or "STORE"
+DirectReg, BaseReg, and IndexReg may be untracked registers or unstandardized names.
+*/
+.decl memory_access(AccessType:symbol,EA:address,SrcOp:operand_index,DstOp:operand_index,
+    DirectReg:register,BaseReg:register,IndexReg:register,Mult:number,Offset:number)
+.output memory_access
+
+// TODO: remove when MIPS has memory_access implemented.
+memory_access("",0,0,0,"","","",0,0):-
+    false.
+
+/**
+Represents a load from memory to a register.
+
+See arch.memory_access().
+*/
+.decl load(EA:address,SrcOp:operand_index,DstOp:operand_index,DstReg:register,
+    BaseReg:register,IndexReg:register,Mult:number,Offset:number) inline
+
+load(EA,SrcOp,DstOp,DstReg,BaseReg,IndexReg,Mult,Offset):-
+    memory_access("LOAD",EA,SrcOp,DstOp,DstReg,BaseReg,IndexReg,Mult,Offset).
+
+/**
+Represents a store from a register to memory.
+
+See arch.memory_access().
+*/
+.decl store(EA:address,SrcOp:operand_index,DstOp:operand_index,SrcReg:register,
+    BaseReg:register,IndexReg:register,Mult:number,Offset:number) inline
+
+store(EA,SrcOp,DstOp,SrcReg,BaseReg,IndexReg,Mult,Offset):-
+    memory_access("STORE",EA,SrcOp,DstOp,SrcReg,BaseReg,IndexReg,Mult,Offset).
+
+.decl delay_slot(BranchEA:address,EA:address)
+.output delay_slot
+
+delay_slot(0,0):-
+    false.
+
+/**
+These operations are either special like LEA (does not read memory) or
+are not decoded corectly from capstone
+
+* EA: Instruction address
+* OpIndex: Operand index
+* Size: Operand size in bytes
+*/
+.decl operation_size_exception(EA:address,OpIndex:operand_index,Size:unsigned)
+operation_size_exception(0,0,0):-
+    false.
+
+/**
+Arithmetic operation on one source register of the form Dst = Src * Mult + Offset
+*/
+.decl reg_arithmetic_operation(EA:address,Dst:register,Src:register,Mult:number,Offset:number)
+.output reg_arithmetic_operation
+
+// Simplify operations with two source registers where both registers are the same.
+reg_arithmetic_operation(EA,Dst,Src,Mult+1,Offset):-
+    Mult != -1,
+    arch.reg_reg_arithmetic_operation(EA,Dst,Src,Src,Mult,Offset).
+
+/**
+Arithmetic operation on two source registers of the form Dst = Src1 + Src2 * Mult + Offset
+
+Note: Src1 and Src2 *may* be the same register.
+*/
+.decl reg_reg_arithmetic_operation(EA:address,Dst:register,Src1:register,Src2:register,Mult:number,Offset:number)
+
+// Commutative property
+reg_reg_arithmetic_operation(EA,Dst,Reg2,Reg1,1,0):-
+    reg_reg_arithmetic_operation(EA,Dst,Reg1,Reg2,1,0).
+
+/**
+An instruction at EA defines the register Reg
+
+This should include both registers that are an explicit destination operand of
+the instruction as well as registers that are implicitly defined. For example,
+consider this ARM32 load instruction with a post-index writeback:
+
+    ldr r0, [r1], #4
+
+This instruction defines both r0 (an explicit register operand) and r1 (which
+is part of an indirect operand, but that operand is not a destination).
+*/
+.decl defines_reg(EA:address,Reg:register)
+
+defines_reg(EA,Reg):-
+    (
+        register_access(EA,"W",UntrackedReg), arch.track_register(UntrackedReg,Reg);
+        load(EA,_,_,Reg,_,_,_,_);
+        reg_arithmetic_operation(EA,Reg,_,_,_);
+        reg_reg_arithmetic_operation(EA,Reg,_,_,_,_);
+        instruction_get_dest_op(EA,_,Op), op_regdirect_contains_reg(Op,Reg)
+    ).
+
+/**
+An instruction at EA uses the register Reg
+
+This may be an implicit use (i.e., the register may not appear in any operands).
+*/
+.decl uses_reg(EA:address,Reg:register)
+.output uses_reg
+
+uses_reg(EA,Reg):-
+    register_access(EA,"R",UntrackedReg),
+    arch.track_register(UntrackedReg,Reg).
+
+/**
+The location and register where the address of main is loaded.
+ */
+.decl inferred_main_in_reg(EA:address,Reg:register)
+
+/**
+ * Locate where main() is dispatched (i.e., where __libc_start_main is called.)
+ */
+.decl inferred_main_dispatch(EA:address) overridable
+
+// Most runtimes dispatch main with the first "call" from the binary entry point.
+inferred_main_dispatch(CallEA):-
+    do_infer_main_function(),
+    CallEA = min EA:{
+        start_function(Entry),
+        arch.call(EA,_),
+        code_in_block(EA,_),
+        EA >= Entry
+    }.
+
+// ===========================================================================
+// Registers
+// ===========================================================================
+
+/**
+Limit the registers that are tracked and transform the names to their 64-bit
+versions.
+*/
+.decl track_register(RegName:register,RegGenericName:register)
+.output track_register
+
+/**
+This specifies the registers whose value is not kept through a function call
+according to the architecture's calling convention.
+*/
+.decl function_non_maintained_reg(Reg:register)
+
+.decl pc_register(Reg:register)
+.output pc_register
+
+.decl frame_pointer(Reg:register)
+.output frame_pointer
+
+.decl stack_pointer(Reg:register)
+.output stack_pointer
+
+.decl return_val_reg(Reg:register)
+
+/**
+The register that holds condition flags.
+*/
+.decl condition_flags_reg(Reg:register)
+
+/**
+A pc-relative address 'Val' is loaded into 'Reg' at address 'EA'.
+*/
+.decl pc_relative_addr(EA:address,Reg:register,Val:number)
+
+pc_relative_addr(0,"",0):- false.
+
+
+// ===========================================================================
+// Other architectural attributes
+// ===========================================================================
+
+.decl loop_prefix(Prefix:symbol)
+loop_prefix(""):-
+    false.
+
+.decl pointer_size(N:unsigned) inline
+
+}

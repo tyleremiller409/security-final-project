@@ -1,0 +1,278 @@
+//===- arm64_binaries.dl ------------------------------------*- datalog -*-===//
+//
+//  Copyright (C) 2019-2022 GrammaTech, Inc.
+//
+//  This code is licensed under the GNU Affero General Public License
+//  as published by the Free Software Foundation, either version 3 of
+//  the License, or (at your option) any later version. See the
+//  LICENSE.txt file in the project root for license terms or visit
+//  https://www.gnu.org/licenses/agpl.txt.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//  GNU Affero General Public License for more details.
+//
+//  This project is sponsored by the Office of Naval Research, One Liberty
+//  Center, 875 N. Randolph Street, Arlington, VA 22203 under contract #
+//  N68335-17-C-0700.  The content of the information does not necessarily
+//  reflect the position or policy of the Government and no official
+//  endorsement should be inferred.
+//
+//===----------------------------------------------------------------------===//
+/**
+Define a set predicates to abstract from ARM64 specific instruction set
+and characteristics
+*/
+
+avoid_symbols("$x").
+
+basic_target(Val):-
+    defined_symbol(Val,_,_,_,_,_,_,_,"$x").
+
+/**
+Compute an immediate load performed across two consecutive instructions
+*/
+.decl split_load(ea:address, nextea:address, dest:address, type:symbol)
+.output split_load
+
+/** E.g.,
+adrp x0, L1
+add x0, x0, :lo12:L1
+*/
+split_load(EA, NextEA, as(Base + Offset,address), "ADD") :-
+    // ADRP/ADR <Register> <Immediate>
+    // e.g. adrp x0, BaseOp
+    instruction_get_operation(EA,ADROperation),
+    substr(ADROperation,0,3) = "ADR",
+    instruction_get_op(EA, 1, BaseOp),
+    op_immediate(BaseOp, Base),
+    instruction_get_op(EA, 2, RegOp),
+    op_regdirect_contains_reg(RegOp,Reg),
+
+    // NOTE: Can't use def_used due to cyclic negation issue.
+    //       This is a heuristic to look at next one or two instruction(s)
+    //       to find ADD instruction.
+    (
+        next(EA, NextEA)
+        ;
+        next(EA, NextEA0), next(NextEA0, NextEA),
+        instruction_get_dest_op(NextEA0,_,TmpOp),
+        !op_regdirect_contains_reg(TmpOp,Reg)
+    ),
+
+    // ADD <Register> <Register> <Immediate>
+    // e.g. add x0, x0, <OffsetOp>
+    instruction_get_operation(NextEA, "ADD"),
+    instruction_get_op(NextEA, 2, OffsetOp),
+    op_immediate(OffsetOp, Offset),
+    instruction_get_op(NextEA, 1, RegOp2),
+    op_regdirect_contains_reg(RegOp2,Reg2),
+    // Make sure the registers match
+    Reg = Reg2.
+
+/** E.g.,
+adrp x0, L1
+ldr x0, [x0,:lo12:L1]
+*/
+split_load(EA, NextEA, as(Base + Offset,address), "LDR/STR") :-
+    // ADRP/ADR <Register> <Immediate>
+    // e.g. adrp x0, BaseOp
+    instruction_get_operation(EA,ADROperation),
+    substr(ADROperation,0,3) = "ADR",
+    instruction_get_op(EA, 1, BaseOp),
+    op_immediate(BaseOp, Base),
+    instruction_get_op(EA, 2, RegOp),
+    op_regdirect_contains_reg(RegOp,Reg),
+
+    // NOTE: Can't use def_used due to cyclic negation issue.
+    //       This is a heuristic to look at next one or two instruction(s)
+    //       to find LDR or STR instruction.
+    (
+        next(EA,NextEA)
+        ;
+        next(EA,NextEA0), next(NextEA0,NextEA),
+        NextEA0 != NextEA,
+        instruction_get_dest_op(NextEA0,_,TmpOp),
+        !op_regdirect_contains_reg(TmpOp,Reg)
+    ),
+
+    // LDR/STR <Register> <IndirectOp>
+    // e.g. ldr x0, [x0, <OffsetOp>]
+    instruction_get_operation(NextEA, Operation),
+    (
+        arch.load_operation(Operation)
+        ;
+        arch.store_operation(Operation)
+    ),
+    instruction_get_op(NextEA, 1, OffsetOp),
+    op_indirect(OffsetOp,"NONE",Reg2,"NONE",_,Offset,_),
+    // Make sure the registers match
+    Reg = Reg2.
+
+pc_relative_jump(EA, as(Dest,address)):-
+    split_load(EA, _, Dest, "LDR/STR").
+
+/**
+A reference to a value loaded by an adr or adrp instruction.
+
+EA: Address of the adr/adrp instruction
+Reg: The register that holds the used value
+UsedEA: Address where the value is used
+Dest: The destination address
+
+Reg is not necessarily the register loaded by adrp! It may be the result of:
+
+    adrp x0, label
+    mov x1, x0
+UsedEA:
+    # x1 is used
+
+and Reg would be `x1`
+*/
+.decl adr_used(EA:address,Reg:register,UsedEA:address,Dest:address)
+
+adr_used(EA,Reg,UsedEA,Dest):-
+    const_value_reg_used(UsedEA,EA,EARegDef,Reg,as(Dest,number)),
+    arch.adr_dest(EA,_,Dest),
+
+    // The `add` of a split load may have an immediate of zero if the target
+    // is page-aligned. If that address then has an addition offset added to
+    // it, e.g.:
+    //      adrp x8, .L_c4a000
+    //      add x8,x8, :lo12:.L_c4a000
+    //      add x8,x8,#8
+    // then we will generate a false positive in the second `add`, since the
+    // first is effectively a move. We only want to apply :lo12: to the first
+    // "ADD" instruction.
+    instruction_get_operation(EARegDef,Operation),
+    Operation != "ADD".
+
+/**
+An instruction which could be the second half of a split load.
+*/
+.decl split_load_tail(EA:address,Offset:number,Reg:register,Type:symbol)
+
+// ADD <Register> <Register> <Immediate>
+// e.g. add x0, x0, <Offset>
+split_load_tail(EA,Offset,Reg,Type):-
+    arch.reg_arithmetic_operation(EA,_,Reg,1,Offset),
+    Type = "ADD".
+
+// LDR/STR <Register> <IndirectOp>
+// e.g. ldr x0, [x0, <OffsetOp>]
+split_load_tail(EA,Offset,Reg,Type):-
+    arch.memory_access(_,EA,_,_,_,Reg,"NONE",_,Offset),
+    Type = "LDR/STR".
+
+/**
+This version of split_load uses def_used, so this should not be used for
+the code inference step due to cyclic negation issue.
+Instead, this is for the symbolization step.
+*/
+.decl split_load_for_symbolization(ea:address, nextea:address, dest:address, type:symbol)
+.output split_load_for_symbolization
+
+// Direct split load
+split_load_for_symbolization(EA,UsedEA,as(as(Base,number)+Offset,address),Type):-
+    adr_used(EA,Reg,UsedEA,Base),
+    split_load_tail(UsedEA,Offset,Reg,Type).
+
+split_load_operand(EA, 1, as(Dest,address)) :-
+    split_load_for_symbolization(EA, _, Dest, _).
+
+split_load_operand(EA, 1, as(Dest,address)) :-
+    split_load_for_symbolization(_, EA, Dest, "LDR/STR").
+
+split_load_operand(EA, 2, as(Dest,address)) :-
+    split_load_for_symbolization(_, EA, Dest, "ADD").
+
+
+/**
+ARM64: ex_false_pointer_array: optimized (e.g., -O2):
+
+6e4:   adrp x0, .L_11018
+6e8:   mov fp,sp
+6ec:   stp x19,x20,[sp,#16]
+6f0:   add x20,x0, :lo12:.L_11018
+6f4:   mov x19,#0
+6f8:   ldr x0,[x0,:lo12:.L_11018]
+
+In optimized binary as above, there may be cases where one adrp instruction
+is shared among multiple split_loads, such as the add and ldr:
+(0x6e4,0x6f0), (0x6e4,06f8), respectively.
+The relocation type of the object at .L_11018 is RELATIVE (global data
+object).
+In such case, using :got: for adrp and :got_lo12: for ldr causes runtime
+failure. To avoid the problem, the relocation directives are not used for adrp and ldr.
+*/
+symbolic_operand_attribute(ea, 1, "GotRef") :-
+    split_load_for_symbolization(ea, _, Dest, "LDR/STR"),
+    !split_load_for_symbolization(ea, _, Dest, "ADD"),
+    relocation(Dest,_,_,_,_,_,_).
+
+symbolic_operand_attribute(ea, 1, "GotRef"),
+symbolic_operand_attribute(ea, 1, "Lo12") :-
+    split_load_for_symbolization(ea0, ea, Dest, "LDR/STR"),
+    !split_load_for_symbolization(ea0, _, Dest, "ADD"),
+    relocation(Dest,_,_,_,_,_,_).
+
+symbolic_operand_attribute(ea, 1, "Lo12") :-
+    split_load_for_symbolization(ea0, ea, Dest, "LDR/STR"),
+    (
+        !relocation(Dest,_,_,_,_,_,_), ea0 = ea0
+        ;
+        split_load_for_symbolization(ea0, _, Dest, "ADD")
+    ).
+
+symbolic_operand_attribute(ea, 2, "Lo12") :-
+    split_load_for_symbolization(_, ea, Dest, "ADD"),
+    !relocation(as(Dest,address),"GLOB_DAT",_,_,_,_,_).
+
+
+value_reg_edge(EA,Reg,EA,"NONE",0,Val):-
+    split_load_for_symbolization(_,EA,RefAddr,_),
+    instruction(EA,_,_,Operation,Op1,_,_,_,_,_),
+    arch.load_operation(Operation),
+    instruction_get_dest_op(EA,_,DestRegOp),
+    op_regdirect_contains_reg(DestRegOp,Reg),
+    op_indirect(Op1,_,_,_,_,_,DataSize),
+    data_word(RefAddr,DataSize/8,Val).
+
+// Not restricted with def_used_for_address since ADRP and ADR are always addresses.
+// TODO: This rule shouldn't be needed once both adrp and adr are marked as pc_relative_addr.
+value_reg_edge(EA,Reg,EA,"NONE",0,Val):-
+    instruction(EA,_,_,Operation,Op1,Op2,_,_,_,_),
+    (
+        Operation = "ADRP";
+        Operation = "ADR"
+    ),
+    op_regdirect_contains_reg(Op2,Reg),
+    op_immediate(Op1,Offset),
+    Val = Offset.
+
+symbolic_operand_candidate(EA,1,Dest,Type):-
+    // ADR <Register> <Immediate>
+    // e.g. adr r1, BaseOp
+    code(EA),
+    instruction_get_operation(EA, Operation),
+    (
+        Operation = "ADR";
+        Operation = "ADRP"
+    ),
+    !split_load_operand(EA,1,_),
+    instruction_get_op(EA, 1, OffsetOp),
+    op_immediate(OffsetOp, Offset),
+    Dest = as(Offset,address),
+    (
+        code(Dest), Type="code"
+        ;
+        data_segment(Begin,End),
+        Dest >= Begin, Dest <= End,
+        Type = "data"
+    ).
+
+unlikely_have_symbolic_immediate(EA):-
+    instruction_get_operation(EA, Operation),
+    contains("ADD", Operation),
+    !split_load(_,EA,_,"ADD").

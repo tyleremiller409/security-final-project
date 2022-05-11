@@ -1,0 +1,124 @@
+//===- empty_range.dl ---------------------------------------*- datalog -*-===//
+//
+//  Copyright (C) 2019 GrammaTech, Inc.
+//
+//  This code is licensed under the GNU Affero General Public License
+//  as published by the Free Software Foundation, either version 3 of
+//  the License, or (at your option) any later version. See the
+//  LICENSE.txt file in the project root for license terms or visit
+//  https://www.gnu.org/licenses/agpl.txt.
+//
+//  This program is distributed in the hope that it will be useful,
+//  but WITHOUT ANY WARRANTY; without even the implied warranty of
+//  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+//  GNU Affero General Public License for more details.
+//
+//  This project is sponsored by the Office of Naval Research, One Liberty
+//  Center, 875 N. Randolph Street, Arlington, VA 22203 under contract #
+//  N68335-17-C-0700.  The content of the information does not necessarily
+//  reflect the position or policy of the Government and no official
+//  endorsement should be inferred.
+//
+//===----------------------------------------------------------------------===//
+/**
+This module defines the component empty_range. It receives a set
+of addresse in_ea and generates a set of overlapping addresses
+and no overapping addresses according to a size of the element.
+*/
+
+
+.comp empty_range{
+
+.decl in_ea(ea:address)
+.decl overlap(ea:address,size:unsigned,Where:address) inline
+
+overlap(EA,2,EA-1):-
+    data_byte(EA,_),
+    in_ea(EA-1).
+
+overlap(EA,4,Where):-
+    data_byte(EA,_),
+    (
+        in_ea(EA-1),Where=EA-1;
+        in_ea(EA-2),Where=EA-2;
+        in_ea(EA-3),Where=EA-3
+    ).
+
+overlap(EA,8,Where):-
+    data_byte(EA,_),
+    (
+        in_ea(EA-1),Where=EA-1;
+        in_ea(EA-2),Where=EA-2;
+        in_ea(EA-3),Where=EA-3;
+        in_ea(EA-4),Where=EA-4;
+        in_ea(EA-5),Where=EA-5;
+        in_ea(EA-6),Where=EA-6;
+        in_ea(EA-7),Where=EA-7
+    ).
+
+
+overlap(EA,16,Where):-
+    data_byte(EA,_),
+    (
+        in_ea(EA-1),Where=EA-1;
+        in_ea(EA-2),Where=EA-2;
+        in_ea(EA-3),Where=EA-3;
+        in_ea(EA-4),Where=EA-4;
+        in_ea(EA-5),Where=EA-5;
+        in_ea(EA-6),Where=EA-6;
+        in_ea(EA-7),Where=EA-7;
+        in_ea(EA-8),Where=EA-8;
+
+        in_ea(EA-9),Where=EA-9;
+        in_ea(EA-10),Where=EA-10;
+        in_ea(EA-11),Where=EA-11;
+        in_ea(EA-12),Where=EA-12;
+        in_ea(EA-13),Where=EA-13;
+        in_ea(EA-14),Where=EA-14;
+        in_ea(EA-15),Where=EA-15
+    ).
+
+.decl no_overlap(ea:address,size:unsigned) inline
+
+
+no_overlap(EA,2):-
+    data_byte(EA,_),
+    !in_ea(EA-1).
+
+no_overlap(EA,4):-
+    data_byte(EA,_),
+    !in_ea(EA-1),
+    !in_ea(EA-2),
+    !in_ea(EA-3).
+
+no_overlap(EA,8):-
+    data_byte(EA,_),
+    !in_ea(EA-1),
+    !in_ea(EA-2),
+    !in_ea(EA-3),
+    !in_ea(EA-4),
+    !in_ea(EA-5),
+    !in_ea(EA-6),
+    !in_ea(EA-7).
+
+
+no_overlap(EA,16):-
+    data_byte(EA,_),
+    !in_ea(EA-1),
+    !in_ea(EA-2),
+    !in_ea(EA-3),
+    !in_ea(EA-4),
+    !in_ea(EA-5),
+    !in_ea(EA-6),
+    !in_ea(EA-7),
+    !in_ea(EA-8),
+
+    !in_ea(EA-9),
+    !in_ea(EA-10),
+    !in_ea(EA-11),
+    !in_ea(EA-12),
+    !in_ea(EA-13),
+    !in_ea(EA-14),
+    !in_ea(EA-15).
+
+}

@@ -1,0 +1,486 @@
+platform: Linux
+
+default: &default
+  path: examples
+  binary: ex
+
+  # Compilation configuration.
+  build: &default-build
+    c: ["gcc", "clang"]
+    cpp: ["g++", "clang++"]
+    optimizations: ["-O0", "-O1", "-O2", "-O3", "-Os"]
+    flags: []
+
+  # Reassembly configuration.
+  reassemble:
+    compiler: "gcc"
+    flags: ["-no-pie"]
+    skip: false
+
+  # Test configuration.
+  test: &default-test
+    wrapper: null
+    strip_exe: "strip"
+    strip: false
+    skip: false
+    check_cfg: true
+
+cpp: &default-cpp
+  <<: *default
+  reassemble:
+    compiler: "g++"
+    flags: ["-no-pie"]
+    skip: false
+
+  test:
+    <<: *default-test
+    check_cfg: false
+
+test-strip-default: &test-strip-default
+  test:
+    strip_exe: "strip"
+    strip: true
+    # We don't check the CFG for stripped binaries, as there are some false
+    # positives in startup code that are hard to filter out.
+    check_cfg: false
+
+assembly: &assembly
+  <<: *default
+  path: examples/asm_examples
+  build:
+    c: ["gcc"]
+    cpp: ["g++"]
+    flags: []
+    optimizations: [""]
+
+c-object: &c-object
+  <<: *default
+  binary: ex.o
+
+  # TODO: clang and clang++
+  build:
+    c: ["gcc"]
+    cpp: ["g++"]
+    flags: ["--save-temps"]
+    optimizations: ["-O0", "-O1", "-O2", "-O3", "-Os"]
+
+  reassemble:
+    compiler: "gcc"
+    flags: ["-c", "-no-pie"]
+
+  link:
+    linker: "gcc"
+    flags: []
+
+  test:
+    <<: *default-test
+    check_cfg: false
+
+cpp-object: &cpp-object
+  <<: *c-object
+
+  reassemble:
+    compiler: "g++"
+    flags: ["-c", "-no-pie"]
+
+  link:
+    linker: "g++"
+
+tests:
+
+  # ----------------------------------------------------------------------------
+  # Small C and C++ examples.
+  # ----------------------------------------------------------------------------
+  - name: ex1
+    <<: *default
+
+  - name: ex_2modulesPIC
+    <<: *default
+
+  - name: ex_confusing_data
+    <<: *default
+
+  - name: ex_exceptions1
+    <<: *default-cpp
+
+  - name: ex_exceptions2
+    <<: *default-cpp
+
+  - name: ex_exceptions3
+    <<: *default-cpp
+
+  - name: ex_false_pointer_array
+    <<: *default
+    test:
+      <<: *default-test
+      # TODO: this example fails because function pointers are not resolved in the CFG
+      check_cfg: false
+
+
+  - name: ex_float
+    <<: *default
+
+  - name: ex_fprintf
+    <<: *default
+
+  - name: ex_getoptlong
+    <<: *default
+
+  - name: ex_init_array
+    <<: *default-cpp
+    build:
+      <<: *default-build
+      # Testing one version is enough.
+      optimizations: ["-O0"]
+
+  - name: ex_memberPointer
+    <<: *default-cpp
+
+  - name: ex_noreturn
+    <<: *default
+    test:
+      <<: *default-test
+      # noreturn may result in unreachable code.
+      check_cfg: false
+
+  - name: ex_pointerReatribution
+    <<: *default
+
+  - name: ex_pointerReatribution3
+    <<: *default
+
+  - name: ex_stat
+    <<: *default
+
+  - name: ex_struct
+    <<: *default
+
+  - name: ex_switch
+    <<: *default
+
+  - name: ex_uninitialized_data
+    <<: *default
+
+  - name: ex_virtualDispatch
+    <<: *default-cpp
+
+  - name: ex_thread_local
+    <<: *default
+
+  - name: ex_threads
+    <<: *default-cpp
+    reassemble:
+      compiler: "g++"
+      flags: ["-no-pie", "-lpthread"]
+
+  - name: ex_dynamic_tls
+    <<: *default
+    binary: fun.so
+    reassemble:
+      compiler: "gcc"
+      flags: ["-shared"]
+      skip: false
+
+  - name: ex_call_once
+    <<: *default-cpp
+    reassemble:
+      compiler: "g++"
+      flags: ["-no-pie", "-lpthread"]
+
+  # ----------------------------------------------------------------------------
+  # Static examples
+  # ----------------------------------------------------------------------------
+  # - name: ex1
+  #   <<: *default
+  #   build:
+  #     flags: ["-static","-no-pie"]
+  #     c: ["gcc"]
+  #     cpp: ["g++"]
+  #     optimizations: ["-O0"]
+  #   reassemble:
+  #     flags: ["-nostdlib", "-no-pie"]
+  #     compiler: "gcc"
+  #   distro:
+  #     name: Ubuntu
+  #     version: ["18.04","20.04"]
+  #   test:
+  #     strip_exe: "strip"
+  #     strip: false
+  #     # CFG checks on static binaries is pretty slow, and a lot of failures (false positives?) in library code.
+  #     check_cfg: false
+
+  # # stripped version
+  # - name: ex1
+  #   <<: *default
+  #   <<: *test-strip-default
+  #   build:
+  #     flags: ["-static", "-no-pie"]
+  #     c: ["gcc"]
+  #     cpp: ["g++"]
+  #     optimizations: ["-O0"]
+  #   reassemble:
+  #     flags: ["-nostdlib", "-no-pie"]
+  #     compiler: "gcc"
+  #   distro:
+  #     name: Ubuntu
+  #     version: ["18.04","20.04"]
+  #   test:
+  #     strip_exe: "strip"
+  #     strip: true
+  #     # CFG checks on static binaries is pretty slow, and a lot of failures (false positives?) in library code.
+  #     check_cfg: false
+
+  # ----------------------------------------------------------------------------
+  # Small C and C++ examples (stripped).
+  # ----------------------------------------------------------------------------
+  - name: ex1
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_2modulesPIC
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_confusing_data
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_exceptions1
+    <<: *default-cpp
+    <<: *test-strip-default
+
+  - name: ex_exceptions2
+    <<: *default-cpp
+    <<: *test-strip-default
+
+  - name: ex_exceptions3
+    <<: *default-cpp
+    <<: *test-strip-default
+
+  - name: ex_false_pointer_array
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_float
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_fprintf
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_getoptlong
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_memberPointer
+    <<: *default-cpp
+    <<: *test-strip-default
+
+  - name: ex_noreturn
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_pointerReatribution
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_pointerReatribution2
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_pointerReatribution3
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_stat
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_struct
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_switch
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_uninitialized_data
+    <<: *default
+    <<: *test-strip-default
+
+  - name: ex_virtualDispatch
+    <<: *default-cpp
+    <<: *test-strip-default
+
+  - name: ex_thread_local
+    <<: *default
+    <<: *test-strip-default
+
+  # ----------------------------------------------------------------------------
+  # Assembly examples.
+  # ----------------------------------------------------------------------------
+  - name: ex_pointerReatribution3
+    <<: *assembly
+
+  - name: ex_pointerReatribution3_clang
+    <<: *assembly
+
+  - name: ex_pointerReatribution3_clang
+    <<: *assembly
+    build:
+      c: ["gcc"]
+      cpp: ["g++"]
+      flags: ["-pie"]
+      optimizations: [""]
+
+  - name: ex_weird_sections
+    <<: *assembly
+
+  - name: ex_relative_switch
+    <<: *assembly
+
+  - name: ex_relative_switch_sizes
+    <<: *assembly
+
+  - name: ex_switch_in_code
+    <<: *assembly
+
+  - name: ex_switch_in_code2
+    <<: *assembly
+
+  - name: ex_switch_in_code3
+    <<: *assembly
+
+  - name: ex_switch_in_code5
+    <<: *assembly
+
+  - name: ex_loop_instructions
+    <<: *assembly
+
+  # ----------------------------------------------------------------------------
+  # Assembly examples. (stripped)
+  # ----------------------------------------------------------------------------
+  - name: ex_pointerReatribution3
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_pointerReatribution3_clang
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_pointerReatribution3_pie
+    <<: *assembly
+    <<: *test-strip-default
+    build:
+      c: ["gcc"]
+      cpp: ["g++"]
+      flags: ["-pie"]
+      optimizations: [""]
+
+  - name: ex_weird_sections
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_relative_switch
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_relative_switch_through_stack
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_relative_switch_sizes
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_switch_in_code
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_switch_in_code2
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_switch_in_code3
+    <<: *assembly
+    <<: *test-strip-default
+
+  - name: ex_loop_instructions
+    <<: *assembly
+    <<: *test-strip-default
+
+  # ----------------------------------------------------------------------------
+  # Relocatable ELF objects (.o).
+  # ----------------------------------------------------------------------------
+  - name: ex1
+    <<: *c-object
+
+  - name: ex_confusing_data
+    <<: *c-object
+
+  # TODO:
+  # - name: ex_exceptions1
+  #   <<: *cpp-object
+
+  # TODO:
+  # - name: ex_exceptions2
+  #   <<: *cpp-object
+
+  # TODO:
+  # - name: ex_exceptions3
+  #   <<: *cpp-object
+
+  - name: ex_false_pointer_array
+    <<: *c-object
+
+  - name: ex_float
+    <<: *c-object
+
+  - name: ex_fprintf
+    <<: *c-object
+
+  - name: ex_getoptlong
+    <<: *c-object
+
+  - name: ex_memberPointer
+    <<: *cpp-object
+
+  - name: ex_noreturn
+    <<: *c-object
+
+  - name: ex_pointerReatribution
+    <<: *c-object
+
+  - name: ex_pointerReatribution2
+    <<: *c-object
+
+  - name: ex_pointerReatribution3
+    <<: *c-object
+
+  - name: ex_stat
+    <<: *c-object
+
+  - name: ex_struct
+    <<: *c-object
+
+  - name: ex_switch
+    <<: *c-object
+
+  - name: ex_uninitialized_data
+    <<: *c-object
+
+  - name: ex_virtualDispatch
+    <<: *cpp-object
+
+  - name: ex_thread_local
+    <<: *c-object
+
+  - name: ex_threads
+    <<: *cpp-object
+    reassemble:
+      compiler: "g++"
+      flags: ["-c", "-no-pie", "-lpthread"]
+    link:
+      compiler: "g++"
+      flags: ["-lpthread"]

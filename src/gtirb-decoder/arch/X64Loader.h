@@ -42,9 +42,22 @@ public:
     X64Loader() : InstructionLoader{1}
     {
         // Setup Capstone engine.
-        [[maybe_unused]] cs_err Err = cs_open(CS_ARCH_X86, CS_MODE_64, CsHandle.get());
-        assert(Err == CS_ERR_OK && "Failed to initialize X64 disassembler.");
-        cs_option(*CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
+
+        rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+
+        sandbox.create_sandbox();
+
+        // [[maybe_unused]] cs_err Err = cs_open(CS_ARCH_X86, CS_MODE_64, CsHandle.get());
+
+        auto Err = sandbox.invoke_sandbox_function(cs_open, CS_ARCH_X86, CS_MODE_64, CsHandle.get());
+
+        assert(Err.UNSAFE_unverified() == CS_ERR_OK && "Failed to initialize X64 disassembler.");
+
+        sandbox.invoke_sandbox_function(cs_option, *CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
+        // cs_option(*CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
+
+
+        sandbox.destroy_sandbox();
     }
 
 protected:

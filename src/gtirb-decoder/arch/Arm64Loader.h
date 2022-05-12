@@ -37,9 +37,22 @@ public:
     Arm64Loader() : InstructionLoader(4)
     {
         // Setup Capstone engine.
-        [[maybe_unused]] cs_err Err = cs_open(CS_ARCH_ARM64, CS_MODE_ARM, CsHandle.get());
-        assert(Err == CS_ERR_OK && "Failed to initialize ARM64 disassembler.");
-        cs_option(*CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
+
+        // [[maybe_unused]] cs_err Err = cs_open(CS_ARCH_ARM64, CS_MODE_ARM, CsHandle.get());
+
+        rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+
+        sandbox.create_sandbox();
+
+        auto Er r= sandbox.invoke_sandbox_function(cs_open, CS_ARCH_ARM64, CS_MODE_ARM, CsHandle.get());
+        // TODO: untaint the above variable??
+
+        assert(Err.UNSAFE_unverified() == CS_ERR_OK && "Failed to initialize ARM64 disassembler.");
+
+        sandbox.invoke_sandbox_function(cs_option, *CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
+        // cs_option(*CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
+
+        sandbox.destroy_sandbox();
     }
 
 protected:

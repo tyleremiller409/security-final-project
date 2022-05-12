@@ -43,7 +43,7 @@ void X86Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, 
 
     auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
 
-    size_t tainted_count = sandbox.invoke_sandbox_function(__, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+    size_t tainted_count = sandbox.invoke_sandbox_function(*CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
 
     // cs_insn* CsInsn;
     // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
@@ -137,7 +137,7 @@ std::optional<relations::Operand> X86Loader::build(const cs_x86_op& CsOp)
     auto registerName = [this](unsigned int Reg) {
         // TODO: figure out how to pass struct
         //return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
-        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, __, Reg)
+        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, Reg)
         if(Reg == ARM_REG_INVALID){
             return "NONE"
         } else {

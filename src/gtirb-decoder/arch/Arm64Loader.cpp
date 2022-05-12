@@ -46,7 +46,7 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
 
     auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
 
-    size_t tainted_count = sandbox.invoke_sandbox_function(__, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+    size_t tainted_count = sandbox.invoke_sandbox_function(*CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
 
     // memcpy(CsInsn, *(tainted_csinsn_ptr.UNSAFE_unverified()), sizeof(cs_insn));
     
@@ -167,7 +167,7 @@ std::optional<relations::Operand> Arm64Loader::build(const cs_insn& CsInsn, uint
     auto registerName = [this](unsigned int Reg) {
         // TODO: figure out how to pass struct
         //return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
-        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, __, Reg)
+        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, Reg)
         if(Reg == ARM_REG_INVALID){
             return "NONE"
         } else {

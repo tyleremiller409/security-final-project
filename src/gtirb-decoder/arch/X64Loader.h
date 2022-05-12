@@ -32,6 +32,10 @@
 #include "../Relations.h"
 #include "../core/InstructionLoader.h"
 
+#define RLBOX_SINGLE_THREADED_INVOCATIONS
+#include "rlbox_wasm2c_sandbox.hpp"
+#include "rlbox.hpp"
+
 class X64Loader : public InstructionLoader
 {
 public:

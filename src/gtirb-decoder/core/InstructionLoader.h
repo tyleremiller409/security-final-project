@@ -30,6 +30,10 @@
 #include "../DatalogProgram.h"
 #include "../Relations.h"
 
+#define RLBOX_SINGLE_THREADED_INVOCATIONS
+#include "rlbox_wasm2c_sandbox.hpp"
+#include "rlbox.hpp"
+
 class OperandFacts
 {
 public:

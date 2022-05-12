@@ -27,6 +27,10 @@
 #include <string>
 #include <vector>
 
+#define RLBOX_SINGLE_THREADED_INVOCATIONS
+#include "rlbox_wasm2c_sandbox.hpp"
+#include "rlbox.hpp"
+
 void X86Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, uint64_t Addr)
 {
     // Decode instruction with Capstone.

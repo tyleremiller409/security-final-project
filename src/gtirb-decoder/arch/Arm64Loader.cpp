@@ -26,30 +26,63 @@
 #include <string>
 #include <vector>
 
+#define RLBOX_SINGLE_THREADED_INVOCATIONS
+#include "rlbox_wasm2c_sandbox.hpp"
+#include "rlbox.hpp"
+
 void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, uint64_t Addr)
 {
     // Decode instruction with Capstone.
-    cs_insn* CsInsn;
-    size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
+
+    rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+    sandbox.create_sandbox();
+
+    // cs_insn* CsInsn;
+
+    // TODO: COPY THINGS OVER
+
+    auto tainted_bytes = sandbox.malloc_in_sandbox<uint8_t>(Size);
+    memcpy(tainted_bytes.unverified_safe_pointer_because(Size, "copying bytes into sandbox"), Bytes, Size);
+
+    auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
+
+    size_t tainted_count = sandbox.invoke_sandbox_function(__, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+
+    // cs_insn* CsInsn = malloc(sizeof(cs_insn));
+
+    // memcpy(CsInsn, *(tainted_csinsn_ptr.UNSAFE_unverified()), sizeof(cs_insn));
+    
+    // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
 
     // Build datalog instruction facts from Capstone instruction.
     bool InstAdded = false;
     if(Count > 0)
     {
-        InstAdded = build(Facts, *CsInsn);
+        // TODO: need to verify but how??
+        InstAdded = build(Facts, *(tainted_csinsn_ptr.UNSAFE_unverified()));
     }
 
     if(InstAdded)
     {
-        loadRegisterAccesses(Facts, Addr, *CsInsn);
+        loadRegisterAccesses(Facts, Addr, *(tainted_csinsn_ptr.UNSAFE_unverified()));
     }
     else
     {
         // Add address to list of invalid instruction locations.
         Facts.Instructions.invalid(gtirb::Addr(Addr));
     }
+    // how to dereference a tainted pointer?
+    sandbox.invoke_sandbox_function(cs_free, *tainted_csinsn_ptr, tainted_count);
+    // free(CsInsn);
 
-    cs_free(CsInsn, Count);
+    // cs_free(CsInsn, Count);
+
+    // TODO: REMEMBER TO FREE SANDBOX MEMORY VALUES LATER ON
+    // - tainted_bytes
+    // - tainted_csinsn_ptr??
+    sandbox.free_in_sandbox(tainted_bytes)
+    sandbox.free_in_sandbox(tainted_csinsn_ptr)
+    sandbox.destroy_sandbox();
 }
 
 bool Arm64Loader::build(BinaryFacts& Facts, const cs_insn& CsInstruction)
@@ -130,9 +163,21 @@ std::optional<relations::Operand> Arm64Loader::build(const cs_insn& CsInsn, uint
                                                      const cs_arm64_op& CsOp)
 {
     using namespace relations;
+    rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+    sandbox.create_sandbox();
 
     auto registerName = [this](unsigned int Reg) {
-        return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
+        // TODO: figure out how to pass struct
+        //return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
+        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, __, Reg)
+        if(Reg == ARM_REG_INVALID){
+            return "NONE"
+        } else {
+            auto reg_name_ret = uppercase(reg_name.UNSAFE_unverified());
+            sandbox.free_in_sandbox(reg_name);
+            sandbox.destroy_sandbox()
+            return reg_name_ret;
+        }
     };
 
     switch(CsOp.type)

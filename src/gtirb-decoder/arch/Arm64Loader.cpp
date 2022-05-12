@@ -48,8 +48,6 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
 
     size_t tainted_count = sandbox.invoke_sandbox_function(__, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
 
-    // cs_insn* CsInsn = malloc(sizeof(cs_insn));
-
     // memcpy(CsInsn, *(tainted_csinsn_ptr.UNSAFE_unverified()), sizeof(cs_insn));
     
     // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);

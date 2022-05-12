@@ -34,21 +34,32 @@
 void X86Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, uint64_t Addr)
 {
     // Decode instruction with Capstone.
-    cs_insn* CsInsn;
-    size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
+
+    rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+    sandbox.create_sandbox();
+
+    auto tainted_bytes = sandbox.malloc_in_sandbox<uint8_t>(Size);
+    memcpy(tainted_bytes.unverified_safe_pointer_because(Size, "copying bytes into sandbox"), Bytes, Size);
+
+    auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
+
+    size_t tainted_count = sandbox.invoke_sandbox_function(__, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+
+    // cs_insn* CsInsn;
+    // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
 
     // Build datalog instruction facts from Capstone instruction.
     std::optional<relations::Instruction> Instruction;
     if(Count > 0)
     {
-        Instruction = build(Facts, *CsInsn);
+        Instruction = build(Facts, *(tainted_csinsn_ptr.UNSAFE_unverified()));
     }
 
     if(Instruction)
     {
         // Add the instruction to the facts table.
         Facts.Instructions.add(*Instruction);
-        loadRegisterAccesses(Facts, Addr, *CsInsn);
+        loadRegisterAccesses(Facts, Addr, *(tainted_csinsn_ptr.UNSAFE_unverified()));
     }
     else
     {
@@ -56,7 +67,12 @@ void X86Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, 
         Facts.Instructions.invalid(gtirb::Addr(Addr));
     }
 
-    cs_free(CsInsn, Count);
+    sandbox.invoke_sandbox_function(cs_free, *tainted_csinsn_ptr, tainted_count);
+    // cs_free(CsInsn, Count);
+    
+    sandbox.free_in_sandbox(tainted_bytes)
+    sandbox.free_in_sandbox(tainted_csinsn_ptr)
+    sandbox.destroy_sandbox();
 }
 
 std::optional<relations::Instruction> X86Loader::build(BinaryFacts& Facts,
@@ -119,7 +135,17 @@ std::tuple<std::string, std::string> X86Loader::splitMnemonic(const cs_insn& CsI
 std::optional<relations::Operand> X86Loader::build(const cs_x86_op& CsOp)
 {
     auto registerName = [this](unsigned int Reg) {
-        return (Reg == X86_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
+        // TODO: figure out how to pass struct
+        //return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
+        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, __, Reg)
+        if(Reg == ARM_REG_INVALID){
+            return "NONE"
+        } else {
+            auto reg_name_ret = uppercase(reg_name.UNSAFE_unverified());
+            sandbox.free_in_sandbox(reg_name);
+            sandbox.destroy_sandbox()
+            return reg_name_ret;
+        }
     };
 
     switch(CsOp.type)

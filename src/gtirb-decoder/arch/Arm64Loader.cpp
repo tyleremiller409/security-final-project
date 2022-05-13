@@ -44,20 +44,102 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
     auto tainted_bytes = sandbox.malloc_in_sandbox<uint8_t>(Size);
     memcpy(tainted_bytes.unverified_safe_pointer_because(Size, "copying bytes into sandbox"), Bytes, Size);
 
-    auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
+    auto tainted_csinsn_ptr_ptr = sandbox.malloc_in_sandbox<cs_insn *>(1);
 
-    size_t tainted_count = sandbox.invoke_sandbox_function(*CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+    auto tainted_count = sandbox.invoke_sandbox_function(cs_disasm, *CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr_ptr);
+
+    size_t Count = tainted_count.copy_and_verify([](size_t c) {
+        if (c == 0 || c == 1) {
+            return c;
+        }
+        exit(1);
+    });
 
     // memcpy(CsInsn, *(tainted_csinsn_ptr.UNSAFE_unverified()), sizeof(cs_insn));
     
     // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
 
     // Build datalog instruction facts from Capstone instruction.
+
+    // plan:
+    // dereference all the way down to cs_detail and any structs that do not contain pointers
+    // copy and verify those structs
+    // then, go up a level
+    // copy and verify the up-level struct
+    // then when it is verified, have to modify the pointer within the up-level struct
+    // to point at the base level struct
+
+
+    auto tainted_CsInsn_ptr = *tainted_csinsn_ptr_ptr; // I expect this to be tainted<cs_insn *>
+
+    // dereference to go down a level
+    auto tainted_detail_ptr = tainted_CsInsn_ptr->detail; // I expect this to be tainted<cs_detail *>
+
+    cs_detail* detail_ptr = malloc(sizeof(cs_detail));
+    // copy and verify out of tainted detail
+
+    for (int i = 0; i < 12; i++) {
+        detail_ptr->regs_read[i] = tainted_detail_ptr->regs_read[i].copy_and_verify([](ushort reg) {
+            if (0 <= reg && reg < 64) {
+                // expect register ids to be less than 64
+                return reg;
+            }
+            exit(1);
+        });
+    }
+
+    detail_ptr->regs_read_count = tainted_detail_ptr->regs_read_count.copy_and_verify([](ubyte count) {
+        if (0 <= count && count <= 12) {
+            // regs_read array is length 12
+            return count;
+        }
+        exit(1);
+    });
+
+    for (int i = 0; i < 20; i++) {
+        detail_ptr->regs_write[i] = tainted_detail_ptr->regs_write[i].copy_and_verify([](ushort reg) {
+            if (0 <= reg && reg < 64) {
+                // expect register ids to be less than 64
+                return reg;
+            }
+            exit(1);
+        });
+    }
+
+    detail_ptr->regs_write_count = tainted_detail_ptr->regs_write_count.copy_and_verify([](ubyte count) {
+        if (0 <= count && count <= 20) {
+            // regs_write array is length 20
+            return count;
+        }
+        exit(1);
+    });
+
+    for (int i = 0; i < 8; i++) {
+        detail_ptr->groups[i] = tainted_detail_ptr->groups[i].copy_and_verify([](ubyte group) {
+            if (0 <= group && group < 64) {
+                // expect register ids to be less than 64
+                return group;
+            }
+            exit(1);
+        });
+    }
+
+    detail_ptr->groups_count = tainted_detail_ptr->groups_count.copy_and_verify([](ubyte count) {
+        if (0 <= count && count <= 8) {
+            // groups array is length 8
+            return count;
+        }
+        exit(1);
+    });
+
+
     bool InstAdded = false;
     if(Count > 0)
     {
         // TODO: need to verify but how??
-        InstAdded = build(Facts, *(tainted_csinsn_ptr.UNSAFE_unverified()));
+        InstAdded = build(Facts, *(tainted_csinsn_ptr.copy_and_verify([](cs_insn *ptr) {
+            return ptr;
+        })));
     }
 
     if(InstAdded)
@@ -70,7 +152,7 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
         Facts.Instructions.invalid(gtirb::Addr(Addr));
     }
     // how to dereference a tainted pointer?
-    sandbox.invoke_sandbox_function(cs_free, *tainted_csinsn_ptr, tainted_count);
+    sandbox.invoke_sandbox_function(cs_free, *tainted_csinsn_ptr, Count);
     // free(CsInsn);
 
     // cs_free(CsInsn, Count);

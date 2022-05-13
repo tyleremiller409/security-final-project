@@ -39,7 +39,7 @@ void X64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, 
 
     auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
 
-    size_t tainted_count = sandbox.invoke_sandbox_function(*CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+    size_t tainted_count = sandbox.invoke_sandbox_function(cs_disasm, *CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
 
     // cs_insn* CsInsn;
     // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);

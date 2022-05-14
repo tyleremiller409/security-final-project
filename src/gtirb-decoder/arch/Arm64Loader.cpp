@@ -61,10 +61,9 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
         return *ptr_ptr;
     });
 
-    // fill out the fields by copy and verify
-    UntaintCsInsn.mnemonic = tainted_csinsn_ptr->mnemonic.copy_and_verify_string([] (std::unique_ptr<char[]> mnemonic) {
-        // WRITE: the char buffer inside CsInstruction is CS_MNEMONIC_SIZE long
-        // it is also supposed to be ASCII text TODO check if ascii
+
+    UntaintCsInsn.mnemonic = tainted_csinsn_ptr->mnemonic.copy_and_verify_string([] 
+        (std::unique_ptr<char[]> mnemonic) {
         if (std::strlen(mnemonic.get()) > CS_MNEMONIC_SIZE) {
             exit(1);
         }
@@ -112,12 +111,10 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
     auto verify_reg = [] (arm64_reg reg) {
         return 0 <= reg && reg <= 260;
     }
-
     auto operand_verifier = [] (cs_arm64_op CsOp) {
         switch(CsOp.type)
         {
             case ARM64_OP_REG:
-                // WRITE: CsOp type is enum, with acceptable range 0 to 260
                 if (!verify_reg(CsOp.reg)) {
                     exit(1);
                 }
@@ -125,7 +122,6 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
             case ARM64_OP_IMM:
                 break;
             case ARM64_OP_MEM:
-            {
                 // need to check mem.base - this is a register
                 // mem.index - this is a register
                 // mem.disp is an int, so this is fine
@@ -133,7 +129,6 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
                     exit(1);
                 }
                 break;
-            }
             case ARM64_OP_FP:
                 break;
             case ARM64_OP_CIMM:
@@ -142,34 +137,27 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
                 // op_str from cs_insn type has already been verified, nothing
                 // to do here
                 break;
-            
             case ARM64_OP_REG_MRS:
             case ARM64_OP_REG_MSR:
             case ARM64_OP_SYS:
                 // op_str has already been verified, nothing to do here
                 break;
-
             case ARM64_OP_PREFETCH:
-            
                 // prefetch value is verified by app later and does not cause memory safety
                 // issues, so nothing to check here
                 break;
-            
             case ARM64_OP_BARRIER:
                 // barrier value is verified by app later and does not cause memory safety
                 // issues, so nothing to check here
                 break;
-            
             case ARM64_OP_INVALID:
             default:
                 exit(1);
-                break;
         }
-
         return op;
     }
-
-    CsDetail.arm64.operands = tainted_csinsn_ptr->detail->operands.copy_and_verify_range(operand_verifier, CsDetail.arm64.op_count);
+    CsDetail.arm64.operands = tainted_csinsn_ptr->detail->operands.copy_and_verify_range(
+        operand_verifier, CsDetail.arm64.op_count);
     
 
     

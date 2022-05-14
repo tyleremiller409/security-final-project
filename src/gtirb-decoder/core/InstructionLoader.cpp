@@ -76,7 +76,8 @@ void InstructionLoader::loadRegisterAccesses(BinaryFacts& Facts, uint64_t Addr,
 
     memcpy(tainted_cs_insn_ptr.unverified_safe_pointer_because("copying into sandbox"), &CsInstruction, sizeof(cs_insn));
 
-    if (sandbox.invoke_sandbox_function(cs_regs_access, *CsHandle, tainted_cs_insn_ptr, tainted_regs_read, tainted_regs_read_count, tainted_regs_write, tainted_regs_write_count).copy_and_verify([] (int val) {
+    if (sandbox.invoke_sandbox_function(cs_regs_access, *CsHandle, tainted_cs_insn_ptr, tainted_regs_read, tainted_regs_read_count, 
+            tainted_regs_write, tainted_regs_write_count).copy_and_verify([] (int val) {
         if (val >= 0 && val <= 14) {
             return val;
         }
@@ -87,26 +88,27 @@ void InstructionLoader::loadRegisterAccesses(BinaryFacts& Facts, uint64_t Addr,
 
     gtirb::Addr GtirbAddr = gtirb::Addr(Addr);
 
-    RegsReadCount = tainted_regs_read_count.copy_and_verify([] (int count) {
-        // TODO
-        if (count >= 0 && count <= 12) {
-            return count;
-        }
-        exit(1);
+    RegsReadCount = tainted_regs_read_count.copy_and_verify(
+            [] (int count) {
+                if (count >= 0 && count <= 12) {
+                    return count;
+                }
+                exit(1);
     });
 
-    RegsWriteCount = tainted_regs_write_count.copy_and_verify([] (int val) {
-        // TODO
-        if (count >= 0 && count <= 20) {
-            return count;
-        }
-        exit(1);
+    RegsWriteCount = tainted_regs_write_count.copy_and_verify(
+        [] (int val) {
+            if (count >= 0 && count <= 20) {
+                return count;
+            }
+            exit(1);
     }); 
 
     for(uint8_t i = 0; i < RegsReadCount; i++)
     {
         Facts.Instructions.registerAccess(relations::RegisterAccess{
-            GtirbAddr, "R", uppercase(sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, RegsRead[i]).copy_and_verify_string([] (std::unique_ptr<char[]> reg_name) {
+            GtirbAddr, "R", uppercase(sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, 
+                RegsRead[i]).copy_and_verify_string([] (std::unique_ptr<char[]> reg_name) {
                 if (std::strlen(reg_name.get()) > MAX_REG_NAME_LEN) {
                     exit(1);
                 }
@@ -116,7 +118,8 @@ void InstructionLoader::loadRegisterAccesses(BinaryFacts& Facts, uint64_t Addr,
     for(uint8_t i = 0; i < RegsWriteCount; i++)
     {
         Facts.Instructions.registerAccess(relations::RegisterAccess{
-            GtirbAddr, "W", uppercase(sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, RegsWrite[i]).copy_and_verify_string([] (std::unique_ptr<char[]> reg_name) {
+            GtirbAddr, "W", uppercase(sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, 
+                RegsWrite[i]).copy_and_verify_string([] (std::unique_ptr<char[]> reg_name) {
                 if (std::strlen(reg_name.get()) > MAX_REG_NAME_LEN) {
                     exit(1);
                 }

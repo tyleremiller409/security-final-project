@@ -40,14 +40,19 @@ public:
 
         // [[maybe_unused]] cs_err Err = cs_open(CS_ARCH_ARM64, CS_MODE_ARM, CsHandle.get());
 
-        rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+        rlbox::rlbox_sandbox<rlbox::rlbox_noop_sandbox> sandbox;
 
         sandbox.create_sandbox();
 
-        auto Er r= sandbox.invoke_sandbox_function(cs_open, CS_ARCH_ARM64, CS_MODE_ARM, CsHandle.get());
+        auto Err = sandbox.invoke_sandbox_function(cs_open, CS_ARCH_ARM64, CS_MODE_ARM, CsHandle.get());
         // TODO: untaint the above variable??
 
-        assert(Err.UNSAFE_unverified() == CS_ERR_OK && "Failed to initialize ARM64 disassembler.");
+        assert(Err.copy_and_verify([] (int val) {
+            if (val >= 0 && val <= 14) {
+                return val;
+            }
+            exit(1);
+        }) == CS_ERR_OK && "Failed to initialize ARM64 disassembler.");
 
         sandbox.invoke_sandbox_function(cs_option, *CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
         // cs_option(*CsHandle, CS_OPT_DETAIL, CS_OPT_ON);

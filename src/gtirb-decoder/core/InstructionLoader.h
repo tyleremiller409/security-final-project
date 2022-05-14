@@ -30,9 +30,11 @@
 #include "../DatalogProgram.h"
 #include "../Relations.h"
 
+
 #define RLBOX_SINGLE_THREADED_INVOCATIONS
-#include "rlbox_wasm2c_sandbox.hpp"
-#include "rlbox.hpp"
+#define RLBOX_USE_STATIC_CALLS() rlbox_noop_sandbox_lookup_symbol
+#include "include/rlbox_noop_sandbox.hpp"
+#include "include/rlbox.hpp"
 
 class OperandFacts
 {
@@ -230,11 +232,25 @@ public:
 protected:
     explicit InstructionLoader(uint8_t N) : InstructionSize{N}
     {
+
+        rlbox::rlbox_sandbox<rlbox::rlbox_noop_sandbox> sandbox;
+
+        sandbox.create_sandbox();
+
         // Create smart Capstone handle.
         CsHandle.reset(new csh(0), [](csh* Handle) {
-            cs_close(Handle);
+            auto Err = sandbox.invoke_sandbox_function(cs_close, Handle);
+            // cs_close(Handle);
+            assert(Err.copy_and_verify([] (int val) {
+                if (val >= 0 && val <= 14) {
+                    return val;
+                }
+                exit(1);
+            }) == CS_ERR_OK && "Failed to shutdown the capstone engine.");
             delete Handle;
         });
+
+        sandbox.destroy_sandbox();
     };
 
     virtual void insert(const BinaryFacts& Facts, DatalogProgram& Program);

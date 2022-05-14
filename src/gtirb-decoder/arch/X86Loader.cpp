@@ -27,39 +27,108 @@
 #include <string>
 #include <vector>
 
-#define RLBOX_SINGLE_THREADED_INVOCATIONS
-#include "rlbox_wasm2c_sandbox.hpp"
-#include "rlbox.hpp"
+// #define RLBOX_SINGLE_THREADED_INVOCATIONS
+// #include "include/rlbox_noop_sandbox.hpp"
+// #include "include/rlbox.hpp"
 
 void X86Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, uint64_t Addr)
 {
     // Decode instruction with Capstone.
 
-    rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+    rlbox::rlbox_sandbox<rlbox::rlbox_noop_sandbox> sandbox;
     sandbox.create_sandbox();
 
     auto tainted_bytes = sandbox.malloc_in_sandbox<uint8_t>(Size);
     memcpy(tainted_bytes.unverified_safe_pointer_because(Size, "copying bytes into sandbox"), Bytes, Size);
 
-    auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<uint64_t>(1);
+    auto tainted_csinsn_ptr = sandbox.malloc_in_sandbox<cs_insn*>(1);
 
-    size_t tainted_count = sandbox.invoke_sandbox_function(cs_disasm, *CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
+    auto tainted_count = sandbox.invoke_sandbox_function(cs_disasm, *CsHandle, tainted_bytes, Size, Addr, 1, tainted_csinsn_ptr);
 
     // cs_insn* CsInsn;
     // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
+
+    size_t Count = tainted_count.copy_and_verify([](size_t c) {
+        if (c == 0 || c == 1) {
+            return c;
+        }
+        exit(1);
+    });
+
+    cs_insn UntaintCsInsn;
+
+    auto tainted_csinsn_ptr = tainted_csinsn_ptr_ptr.copy_and_verify([](cs_insn** ptr_ptr) {
+        return *ptr_ptr;
+    });
+
+    UntaintCsInsn.mnemonic = tainted_csinsn_ptr->mnemonic.copy_and_verify_string([] (std::unique_ptr<char[]> mnemonic) {
+        // WRITE: the char buffer inside CsInstruction is CS_MNEMONIC_SIZE long
+        // it is also supposed to be ASCII text TODO check if ascii
+        if (std::strlen(mnemonic.get()) > CS_MNEMONIC_SIZE) {
+            exit(1);
+        }
+        return mnemonic;
+    });
+
+    UntaintCsInsn.address = tainted_csinsn_ptr->address.copy_and_verify([] (ulong addr) {
+        return addr;
+    });
+    UntaintCsInsn.size = tainted_csinsn_ptr->size.copy_and_verify([] (ushort sz) {
+        return sz;
+    });
+
+    cs_detail CsDetail;
+    UntaintCsInsn.detail = &CsDetail;
+    CsDetail.x86.op_count = tainted_csinsn_ptr->detail->op_count.copy_and_verify(
+        [](ubyte count) {
+            // op_count is used to index an array that is max length of 8
+            if (count <= 8) {
+                return count;
+            }
+            exit(1);
+    });
+
+    auto verify_reg = [] (x86_reg reg) {
+        return 0 <= reg && reg <= 242;
+    }
+
+    auto opcode_verifier = [](cs_86_op CsOp) {
+        switch(CsOp.type)
+        {
+            case X86_OP_REG:
+                if (!verify_reg(CsOp.reg)) {
+                    exit(1);
+                };
+                break;
+            case X86_OP_IMM:
+                break;
+            case X86_OP_MEM:
+                if (!verify_reg(CsOp.mem.base) || !verify_reg(CsOp.mem.scale)) {
+                    exit(1);
+                }
+            case X86_OP_INVALID:
+            default:
+                exit(1);
+                break;
+        }
+
+    };
+
+    CsDetail.x86.operands = tainted_csinsn_ptr->detail->op_code.copy_and_verify_range(opcode_verifier, CsDetail.x86.op_count);
+
 
     // Build datalog instruction facts from Capstone instruction.
     std::optional<relations::Instruction> Instruction;
     if(Count > 0)
     {
-        Instruction = build(Facts, *(tainted_csinsn_ptr.UNSAFE_unverified()));
+        Instruction = build(Facts, UntaintCsInsn);
     }
 
     if(Instruction)
     {
         // Add the instruction to the facts table.
         Facts.Instructions.add(*Instruction);
-        loadRegisterAccesses(Facts, Addr, *(tainted_csinsn_ptr.UNSAFE_unverified()));
+        loadRegisterAccesses(Facts, Addr, UntaintCsInsn);
     }
     else
     {
@@ -67,11 +136,11 @@ void X86Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, 
         Facts.Instructions.invalid(gtirb::Addr(Addr));
     }
 
-    sandbox.invoke_sandbox_function(cs_free, *tainted_csinsn_ptr, tainted_count);
+    sandbox.invoke_sandbox_function(cs_free, tainted_csinsn_ptr_ptr.copy_and_verify([](cs_insn** ptr_ptr) { return *ptr_ptr; })), tainted_count);
     // cs_free(CsInsn, Count);
     
-    sandbox.free_in_sandbox(tainted_bytes)
-    sandbox.free_in_sandbox(tainted_csinsn_ptr)
+    sandbox.free_in_sandbox(tainted_bytes);
+    sandbox.free_in_sandbox(tainted_csinsn_ptr);
     sandbox.destroy_sandbox();
 }
 
@@ -135,17 +204,10 @@ std::tuple<std::string, std::string> X86Loader::splitMnemonic(const cs_insn& CsI
 std::optional<relations::Operand> X86Loader::build(const cs_x86_op& CsOp)
 {
     auto registerName = [this](unsigned int Reg) {
-        // TODO: figure out how to pass struct
-        //return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg));
-        auto reg_name = sandbox.invoke_sandbox_function(cs_reg_name, *CsHandle, Reg)
-        if(Reg == ARM_REG_INVALID){
-            return "NONE"
-        } else {
-            auto reg_name_ret = uppercase(reg_name.UNSAFE_unverified());
-            sandbox.free_in_sandbox(reg_name);
-            sandbox.destroy_sandbox()
-            return reg_name_ret;
-        }
+        return (Reg == ARM_REG_INVALID) ? "NONE" : uppercase(cs_reg_name(*CsHandle, Reg).copy_and_verify_string([](std::unique_ptr<char[] val) {
+            // TODO actually verify later
+            return val;
+        }));
     };
 
     switch(CsOp.type)

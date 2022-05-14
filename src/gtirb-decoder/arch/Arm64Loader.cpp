@@ -26,20 +26,19 @@
 #include <string>
 #include <vector>
 
-#define RLBOX_SINGLE_THREADED_INVOCATIONS
-#include "rlbox_wasm2c_sandbox.hpp"
-#include "rlbox.hpp"
+
+// #define RLBOX_SINGLE_THREADED_INVOCATIONS
+// #include "include/rlbox_noop_sandbox.hpp"
+// #include "include/rlbox.hpp"
 
 void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size, uint64_t Addr)
 {
     // Decode instruction with Capstone.
 
-    rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+    rlbox::rlbox_sandbox<rlbox::rlbox_noop_sandbox> sandbox;
     sandbox.create_sandbox();
 
     // cs_insn* CsInsn;
-
-    // TODO: COPY THINGS OVER
 
     auto tainted_bytes = sandbox.malloc_in_sandbox<uint8_t>(Size);
     memcpy(tainted_bytes.unverified_safe_pointer_because(Size, "copying bytes into sandbox"), Bytes, Size);
@@ -55,161 +54,15 @@ void Arm64Loader::decode(BinaryFacts& Facts, const uint8_t* Bytes, uint64_t Size
         exit(1);
     });
 
-    // memcpy(CsInsn, *(tainted_csinsn_ptr.UNSAFE_unverified()), sizeof(cs_insn));
-    
-    // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
+    cs_insn UntaintCsInsn;
 
-    // Build datalog instruction facts from Capstone instruction.
-
-    auto tainted_CsInsn_ptr = *tainted_csinsn_ptr_ptr; // I expect this to be tainted<cs_insn *>
-
-    // dereference to go down a level
-    auto tainted_detail_ptr = tainted_CsInsn_ptr->detail; // I expect this to be tainted<cs_detail *>
-
-    // cs_detail* detail_ptr = malloc(sizeof(cs_detail));
-    // copy and verify out of tainted detail
-
-    // [x] detail-> op count
-    // [x] detail -> writeback
-    // [x] detail -> operands
-
-    /*
-    cs_arm64* arm64_ptr = &(detail_ptr->arm64);
-    auto tainted_arm64_ptr = tainted_detail_ptr->arm64;
-
-    arm64_ptr->op_count = tainted_arm64_ptr->op_count.copy_and_verify([](ubyte op_count) {
-        // WRITE
-        // operands is an array with variable number of elements, 
-        // but max length of 8
-        if (0 <= op_count && op_count <= 8) {
-            return op_count;
-        }
-        exit(1);
+    // get a tainted pointer
+    auto tainted_csinsn_ptr = tainted_csinsn_ptr_ptr.copy_and_verify([](cs_insn** ptr_ptr) {
+        return *ptr_ptr;
     });
 
-    // writeback is just a boolean, and it depends on the instruction
-    arm64->writeback = tainted_arm64_ptr->writeback.copy_and_verify([](boolean wb) { return wb; });
-    */
-
-    // cs_arm64_op fields we need to verify:
-    /*
-            [x] type
-            [x] reg, type: arm64_reg (enum)
-            [ ] imm - don't think I need to
-            [ ] .shift.value - don't think I need to
-            [ ] .shift.type - don't think I need to
-            [ ] mem.base - don't think I need to
-            [ ] mem.index - don't think I need to
-            [ ] mem.disp - don't think I need to
-            [ ] fp - don't think I need to
-            [ ] prefetch - I believe all values for these are safe, because it is passed into a switch case with a default case that is taken care of, but we could use this to demonstrate enum checking
-            [ ] barrier - don't think I need to
-    */
-
-    /*
-    auto op_type_verifier = [] (arm64_op_type type) {
-        // WRITE: arm64_op_type is an enum that has non-contiguous
-        // values
-        switch(type) {
-            case ARM64_OP_INVALID: ///< = CS_OP_INVALID (Uninitialized).
-            case ARM64_OP_REG:///< = CS_OP_REG (Register operand).
-            case ARM64_OP_IMM: ///< = CS_OP_IMM (Immediate operand).
-            case ARM64_OP_MEM: ///< = CS_OP_MEM (Memory operand).
-            case ARM64_OP_FP: ///< = CS_OP_FP (Floating-Point operand).
-            case ARM64_OP_CIMM: ///< C-Immediate
-            case ARM64_OP_REG_MRS: ///< MRS register operand.
-            case ARM64_OP_REG_MSR: ///< MSR register operand.
-            case ARM64_OP_PSTATE: ///< PState operand.
-            case ARM64_OP_SYS: ///< SYS operand for IC/DC/AT/TLBI instructions.
-            case ARM64_OP_PREFETCH: ///< Prefetch operand (PRFM).
-            case ARM64_OP_BARRIER: ///< Memory barrier operand (ISB/DMB/DSB instructions).
-                return type;
-            default:
-                exit(1);
-        }
-    };
-
-    auto reg_verifier = [] (arm64_reg reg) {
-        // WRITE: arm64_reg is an enum that has only 260 values
-        if (0 <= reg && reg <= 260) {
-            return reg;
-        }
-        exit(1);
-    };
-
-
-
-    auto op_verifier = [] (cs_arm64_op CsOp) {
-        // TODO may need to put this off or only do portions of it
-        // WRITE: type is an enum with non-contiguous values
-        switch(CsOp->type) {
-            case ARM64_OP_INVALID: ///< = CS_OP_INVALID (Uninitialized).
-            case ARM64_OP_REG:///< = CS_OP_REG (Register operand).
-            case ARM64_OP_IMM: ///< = CS_OP_IMM (Immediate operand).
-            case ARM64_OP_MEM: ///< = CS_OP_MEM (Memory operand).
-            case ARM64_OP_FP: ///< = CS_OP_FP (Floating-Point operand).
-            case ARM64_OP_CIMM: ///< C-Immediate
-            case ARM64_OP_REG_MRS: ///< MRS register operand.
-            case ARM64_OP_REG_MSR: ///< MSR register operand.
-            case ARM64_OP_PSTATE: ///< PState operand.
-            case ARM64_OP_SYS: ///< SYS operand for IC/DC/AT/TLBI instructions.
-            case ARM64_OP_PREFETCH: ///< Prefetch operand (PRFM).
-            case ARM64_OP_BARRIER: ///< Memory barrier operand (ISB/DMB/DSB instructions).
-                break;
-            default:
-                exit(1);
-        }
-
-        // only other value we need to check is the reg field for unions
-        // the other values are not exactly easily verifiable (we don't know the assumptions)
-        // and only certain op types need regs
-        if (0 > CsOp)
-
-        return CsOp;
-    };
-    arm64_ptr->operands = tainted_arm64_ptr->operands.copy_and_verify_range(op_verifier, arm64_ptr->op_count);
-    */
-
-
-    bool InstAdded = false;
-    if(Count > 0)
-    {
-        // TODO: need to verify but how??
-        InstAdded = build(Facts, *tainted_csinsn_ptr_ptr);
-    }
-
-    if(InstAdded)
-    {
-        loadRegisterAccesses(Facts, Addr, *tainted_csinsn_ptr_ptr.);
-    }
-    else
-    {
-        // Add address to list of invalid instruction locations.
-        Facts.Instructions.invalid(gtirb::Addr(Addr));
-    }
-    // how to dereference a tainted pointer?
-    sandbox.invoke_sandbox_function(cs_free, *tainted_csinsn_ptr_ptr, Count);
-    // free(CsInsn);
-
-    // cs_free(CsInsn, Count);
-
-    // TODO: REMEMBER TO FREE SANDBOX MEMORY VALUES LATER ON
-    // - tainted_bytes
-    // - tainted_csinsn_ptr??
-    sandbox.free_in_sandbox(tainted_bytes);
-    sandbox.free_in_sandbox(tainted_csinsn_ptr_ptr);
-    sandbox.destroy_sandbox();
-}
-
-bool Arm64Loader::build(BinaryFacts& Facts, tainted<const cs_insn&> CsInstruction)
-{
-    // TODO don't know how to deal with Details rn
-    // could make another var called untainted_Details, and then leave Details as is
-    // so I remember what's tainted and what's not
-    tainted<const cs_arm64&> Details = CsInstruction.detail->arm64;
-
-
-    auto untainted_mnemonic = CsInstruction.mnemonic.copy_and_verify_string([] (std::unique_ptr<char[]> mnemonic) {
+    // fill out the fields by copy and verify
+    UntaintCsInsn.mnemonic = tainted_csinsn_ptr->mnemonic.copy_and_verify_string([] (std::unique_ptr<char[]> mnemonic) {
         // WRITE: the char buffer inside CsInstruction is CS_MNEMONIC_SIZE long
         // it is also supposed to be ASCII text TODO check if ascii
         if (std::strlen(mnemonic.get()) > CS_MNEMONIC_SIZE) {
@@ -217,6 +70,144 @@ bool Arm64Loader::build(BinaryFacts& Facts, tainted<const cs_insn&> CsInstructio
         }
         return mnemonic;
     });
+
+    UntaintCsInsn.address = tainted_csinsn_ptr->address.copy_and_verify([] (ulong addr) {
+        return addr;
+    });
+    UntaintCsInsn.size = tainted_csinsn_ptr->size.copy_and_verify([] (ushort sz) {
+        return sz;
+    });
+
+
+
+    UntaintCsInsn.op_str = tainted_csinsn_ptr->op_str.copy_and_verify(
+            [] (char[] op_str) {
+            for (int i = 0; i < 160; i++) {
+                if (op_str[i] == '\0') {
+                    return op_str;
+                }
+            }
+            exit(1);
+    });
+
+
+    
+
+    cs_detail CsDetail;
+    UntaintCsInsn.detail = &CsDetail;
+    CsDetail.arm64.op_count = tainted_csinsn_ptr->detail->op_count.copy_and_verify(
+        [](ubyte count) {
+            // op_count is used to index an array that is max length of 8
+            if (count <= 8) {
+                return count;
+            }
+            exit(1);
+    });
+
+    CsDetail.arm64.writeback = tainted_csinsn_ptr->detail->writeback.copy_and_verify(
+        [] (bool writeback) {
+            return writeback; // this bool does not affect any memory safety in this app
+    });
+
+    auto verify_reg = [] (arm64_reg reg) {
+        return 0 <= reg && reg <= 260;
+    }
+
+    auto operand_verifier = [] (cs_arm64_op CsOp) {
+        switch(CsOp.type)
+        {
+            case ARM64_OP_REG:
+                // WRITE: CsOp type is enum, with acceptable range 0 to 260
+                if (!verify_reg(CsOp.reg)) {
+                    exit(1);
+                }
+                break;
+            case ARM64_OP_IMM:
+                break;
+            case ARM64_OP_MEM:
+            {
+                // need to check mem.base - this is a register
+                // mem.index - this is a register
+                // mem.disp is an int, so this is fine
+                if (!verify_reg(CsOp.mem.index) || !verify_reg(CsOp.mem.base)) {
+                    exit(1);
+                }
+                break;
+            }
+            case ARM64_OP_FP:
+                break;
+            case ARM64_OP_CIMM:
+                break;
+            case ARM64_OP_PSTATE:
+                // op_str from cs_insn type has already been verified, nothing
+                // to do here
+                break;
+            
+            case ARM64_OP_REG_MRS:
+            case ARM64_OP_REG_MSR:
+            case ARM64_OP_SYS:
+                // op_str has already been verified, nothing to do here
+                break;
+
+            case ARM64_OP_PREFETCH:
+            
+                // prefetch value is verified by app later and does not cause memory safety
+                // issues, so nothing to check here
+                break;
+            
+            case ARM64_OP_BARRIER:
+                // barrier value is verified by app later and does not cause memory safety
+                // issues, so nothing to check here
+                break;
+            
+            case ARM64_OP_INVALID:
+            default:
+                exit(1);
+                break;
+        }
+
+        return op;
+    }
+
+    CsDetail.arm64.operands = tainted_csinsn_ptr->detail->operands.copy_and_verify_range(operand_verifier, CsDetail.arm64.op_count);
+    
+
+    
+    // size_t Count = cs_disasm(*CsHandle, Bytes, Size, Addr, 1, &CsInsn);
+
+    // Build datalog instruction facts from Capstone instruction.
+
+    // writeback is just a boolean, and it depends on the instruction
+
+    bool InstAdded = false;
+    if(Count > 0)
+    {
+        // TODO: need to verify but how??
+        InstAdded = build(Facts, UntaintCsInsn);
+    }
+
+    if(InstAdded)
+    {
+        loadRegisterAccesses(Facts, Addr, UntaintCsInsn);
+    }
+    else
+    {
+        // Add address to list of invalid instruction locations.
+        Facts.Instructions.invalid(gtirb::Addr(Addr));
+    }
+    // how to dereference a tainted pointer?
+    sandbox.invoke_sandbox_function(cs_free, tainted_csinsn_ptr_ptr.copy_and_verify([](cs_insn** ptr_ptr) { return *ptr_ptr; })), Count);
+    // free(CsInsn);
+
+    // cs_free(CsInsn, Count);
+
+    sandbox.free_in_sandbox(tainted_bytes);
+    sandbox.free_in_sandbox(tainted_csinsn_ptr_ptr);
+    sandbox.destroy_sandbox();
+}
+
+bool Arm64Loader::build(BinaryFacts& Facts, const cs_insn& CsInstruction)
+{
 
     std::string Name = uppercase(untainted_mnemonic);
     gtirb::Addr Addr(CsInstruction.address.copy_and_verify([] (ulong addr) {
@@ -226,18 +217,11 @@ bool Arm64Loader::build(BinaryFacts& Facts, tainted<const cs_insn&> CsInstructio
 
     if(Name != "NOP")
     {
-        uint8_t OpCount = Details.op_count.copy_and_verify([] (ubyte op_count) {
-            // WRITE: operands is an array with max length of 8, 
-            // but it reads OpCount in order to index the array
-            if (op_count <= 8) {
-                return op_count;
-            }
-            exit(1);
-        });
+        uint8_t OpCount = Details.op_count;
         for(uint8_t i = 0; i < OpCount; i++)
         {
             // Load capstone operand.
-            tainted<const cs_arm64_op&> CsOp = Details.operands[i];
+            const cs_arm64_op& CsOp = Details.operands[i];
 
             // Build operand for datalog fact.
             std::optional<relations::Operand> Op = build(CsInstruction, i, CsOp);
@@ -254,7 +238,7 @@ bool Arm64Loader::build(BinaryFacts& Facts, tainted<const cs_insn&> CsInstructio
             if(CsOp.type == ARM64_OP_REG && CsOp.shift.value != 0)
             {
                 std::string ShiftType;
-                switch(CsOp.shift.type.UNSAFE_unverified())
+                switch(CsOp.shift.type)
                 {
                     case ARM64_SFT_LSL:
                         ShiftType = "LSL";
@@ -278,7 +262,7 @@ bool Arm64Loader::build(BinaryFacts& Facts, tainted<const cs_insn&> CsInstructio
                 }
                 Facts.Instructions.shiftedOp(
                     relations::ShiftedOp{Addr, static_cast<uint8_t>(i + 1),
-                                         static_cast<uint8_t>(CsOp.shift.value.UNSAFE_unverified()), ShiftType});
+                                         static_cast<uint8_t>(CsOp.shift.value), ShiftType});
             }
         }
         // Put the destination operand at the end of the operand list.
@@ -288,18 +272,18 @@ bool Arm64Loader::build(BinaryFacts& Facts, tainted<const cs_insn&> CsInstructio
         }
     }
 
-    uint64_t Size(CsInstruction.size.UNSAFE_unverified());
+    uint64_t Size(CsInstruction.size);
 
     Facts.Instructions.add(relations::Instruction{Addr, Size, "", Name, OpCodes, 0, 0});
-    if(Details.writeback.UNSAFE_unverified())
+    if(Details.writeback)
     {
         Facts.Instructions.writeback(relations::InstructionWriteback{Addr});
     }
     return true;
 }
 
-std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsInsn, uint8_t OpIndex,
-                                                     tainted<const cs_arm64_op&> CsOp)
+std::optional<relations::Operand> Arm64Loader::build(const cs_insn& CsInsn, uint8_t OpIndex,
+                                                     const cs_arm64_op& CsOp)
 {
     using namespace relations;
     // rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
@@ -330,12 +314,12 @@ std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsI
     };
 
 
-    switch(CsOp.type.UNSAFE_unverified())
+    switch(CsOp.type)
     {
         case ARM64_OP_REG:
-            return RegOp{registerName(CsOp.reg.UNSAFE_unverified())};
+            return RegOp{registerName(CsOp.reg)};
         case ARM64_OP_IMM:
-            return ImmOp{CsOp.imm.UNSAFE_unverified()};
+            return ImmOp{CsOp.imm};
         case ARM64_OP_MEM:
         {
             int64_t Mult = 1;
@@ -345,7 +329,7 @@ std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsI
                 // In load and store operations, the only type of shift allowed is LSL.
                 if(CsOp.shift.type == ARM64_SFT_LSL)
                 {
-                    Mult = 1 << CsOp.shift.value.UNSAFE_unverified();
+                    Mult = 1 << CsOp.shift.value;
                 }
                 else
                 {
@@ -354,15 +338,15 @@ std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsI
             }
 
             IndirectOp I = {registerName(ARM64_REG_INVALID),
-                            registerName(CsOp.mem.base.UNSAFE_unverified()),
-                            registerName(CsOp.mem.index.UNSAFE_unverified()),
+                            registerName(CsOp.mem.base),
+                            registerName(CsOp.mem.index),
                             Mult,
-                            CsOp.mem.disp.UNSAFE_unverified(),
+                            CsOp.mem.disp,
                             4 * 8};
             return I;
         }
         case ARM64_OP_FP:
-            return FPImmOp{CsOp.fp.UNSAFE_unverified()};
+            return FPImmOp{CsOp.fp};
         case ARM64_OP_CIMM:
             std::cerr << "WARNING: unsupported CIMM operand\n";
             break;
@@ -395,7 +379,7 @@ std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsI
         }
         case ARM64_OP_PREFETCH:
         {
-            if(std::optional<const char*> Label = prefetchValue(CsOp.prefetch.UNSAFE_unverified()))
+            if(std::optional<const char*> Label = prefetchValue(CsOp.prefetch))
             {
                 return SpecialOp{"prefetch", *Label};
             }
@@ -403,7 +387,7 @@ std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsI
         }
         case ARM64_OP_BARRIER:
         {
-            if(std::optional<const char*> Label = barrierValue(CsOp.barrier.UNSAFE_unverified()))
+            if(std::optional<const char*> Label = barrierValue(CsOp.barrier))
             {
                 return SpecialOp{"barrier", *Label};
             }
@@ -413,12 +397,12 @@ std::optional<relations::Operand> Arm64Loader::build(tainted<const cs_insn&> CsI
         default:
             break;
     }
-    std::cerr << "WARNING: unhandled operand at " << CsInsn.address.UNSAFE_unverified() << ", op type:" << CsOp.type.UNSAFE_unverified()
+    std::cerr << "WARNING: unhandled operand at " << CsInsn.address << ", op type:" << CsOp.type
               << "\n";
     return std::nullopt;
 }
 
-std::optional<std::string> Arm64Loader::operandString(tainted<const cs_insn& CsInsn>, uint8_t Index)
+std::optional<std::string> Arm64Loader::operandString(const cs_insn& CsInsn, uint8_t Index)
 {
     // NOTE: assumes commas occur between operands, and neither commas
     // nor spaces occur within them. This is not true of all operand types
@@ -428,11 +412,6 @@ std::optional<std::string> Arm64Loader::operandString(tainted<const cs_insn& CsI
     uint8_t CurIndex = 0;
     const char* Start = nullptr;
     size_t Size = 0;
-
-    auto untainted_string = CsInsn.op_str.copy_and_verify_string([] (std::unique_ptr<char[]> val) {
-        // TODO actually verify later
-        return val;
-    });
 
     for(const char* Pos = CsInsn.op_str; *Pos != '\0'; Pos++)
     {

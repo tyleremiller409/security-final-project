@@ -39,7 +39,7 @@ public:
     {
         // Setup Capstone engine.
 
-        rlbox::rlbox_sandbox<rlbox::rlbox_wasm2c_sandbox> sandbox;
+        rlbox::rlbox_sandbox<rlbox::rlbox_noop_sandbox> sandbox;
 
         sandbox.create_sandbox();
 
@@ -47,7 +47,12 @@ public:
 
         auto Err = sandbox.invoke_sandbox_function(cs_open, CS_ARCH_X86, CS_MODE_32, CsHandle.get());
 
-        assert(Err.UNSAFE_unverified() == CS_ERR_OK && "Failed to initialize X86 disassembler.");
+        assert(Err.copy_and_verify([] (int val) {
+            if (val >= 0 && val <= 14) {
+                return val;
+            }
+            exit(1);
+        }) == CS_ERR_OK && "Failed to initialize X86 disassembler.");
         
         
         // cs_option(*CsHandle, CS_OPT_DETAIL, CS_OPT_ON);
